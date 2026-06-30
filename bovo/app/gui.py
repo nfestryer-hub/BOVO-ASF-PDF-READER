@@ -16,9 +16,10 @@ from __future__ import annotations
 import queue
 import threading
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox
+from typing import Any
 
 import customtkinter as ctk
 from PIL import Image
@@ -27,6 +28,7 @@ from app import __author__, __version__
 from app.calendar import STATUT_COLORS, WEEKDAY_NAMES_FR, CalendarModel, DayCell
 from app.database import Database
 from app.exporter import Exporter
+from app.inspections import FieldSpec, InspectionService
 from app.logger import LogAction, get_logger, log_action
 from app.models import Intervention, StatutIntervention
 from app.planner import ImportResult, Planner
@@ -36,6 +38,7 @@ from app.utils import (
     format_date_fr,
     get_system_username,
     open_file_native,
+    parse_iso_date,
 )
 
 logger = get_logger("gui")
@@ -190,6 +193,131 @@ class InterventionDialog(ctk.CTkToplevel):
             messagebox.showwarning("PDF", "Le PDF source est introuvable.")
 
 
+class RowFormDialog(ctk.CTkToplevel):
+    """Formulaire générique d'ajout/édition d'une ligne de module ASF."""
+
+    def __init__(
+        self,
+        master: ctk.CTk,
+        service: InspectionService,
+        sheet: str,
+        row_id: int | None,
+        on_saved: Callable[[], None],
+    ) -> None:
+        super().__init__(master)
+        self._service = service
+        self._sheet = sheet
+        self._row_id = row_id
+        self._on_saved = on_saved
+        self._widgets: dict[str, Any] = {}
+
+        label = service.sheet_label(sheet)
+        verb = "Modifier" if row_id is not None else "Ajouter"
+        self.title(f"{verb} — {label}")
+        self.geometry("560x680")
+        self.configure(fg_color=SURFACE)
+        self.grab_set()
+
+        head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
+        head.pack(fill="x")
+        ctk.CTkLabel(
+            head, text=f"{verb} une entrée — {label}",
+            font=ctk.CTkFont(size=18, weight="bold"), text_color="white",
+        ).pack(padx=20, pady=16, anchor="w")
+
+        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=10)
+
+        existing = service.get_row(sheet, row_id) if row_id is not None else {}
+        for field in service.form_fields(sheet):
+            self._build_field(body, field, (existing or {}).get(field.column, ""))
+
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(fill="x", padx=20, pady=12)
+        ctk.CTkButton(
+            actions, text="💾  Enregistrer", fg_color=ACCENT,
+            hover_color=ACCENT_HOVER, height=42, command=self._save,
+        ).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            actions, text="Annuler", fg_color="transparent", border_width=1,
+            text_color=("black", "white"), height=42, width=120,
+            command=self.destroy,
+        ).pack(side="left", padx=(10, 0))
+
+    def _build_field(
+        self, master: ctk.CTkBaseClass, field: FieldSpec, value: str
+    ) -> None:
+        """Construit le widget correspondant au type de champ."""
+        line = ctk.CTkFrame(master, fg_color="transparent")
+        line.pack(fill="x", pady=6)
+        ctk.CTkLabel(
+            line, text=field.label, width=170, anchor="w",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(side="left")
+
+        if field.widget == "choice":
+            options = ["—", *self._service.referentiel(field.ref_key)]
+            var = ctk.StringVar(value=value if value in options else "—")
+            ctk.CTkOptionMenu(
+                line, values=options, variable=var,
+                fg_color=ACCENT, button_color=ACCENT_HOVER,
+            ).pack(side="left", fill="x", expand=True)
+            self._widgets[field.column] = var
+        elif field.widget == "long":
+            box = ctk.CTkTextbox(line, height=60)
+            box.pack(side="left", fill="x", expand=True)
+            box.insert("1.0", value)
+            self._widgets[field.column] = box
+        else:
+            display = value
+            if field.widget == "date" and value:
+                display = format_date_fr(parse_iso_date(value)) or value
+            var = ctk.StringVar(value=display)
+            placeholder = "JJ/MM/AAAA" if field.widget == "date" else ""
+            ctk.CTkEntry(
+                line, textvariable=var, placeholder_text=placeholder,
+            ).pack(side="left", fill="x", expand=True)
+            self._widgets[field.column] = var
+
+    def _collect(self) -> dict[str, str]:
+        """Récupère les valeurs saisies, normalisées pour le stockage."""
+        data: dict[str, str] = {}
+        for field in self._service.form_fields(self._sheet):
+            widget = self._widgets[field.column]
+            if isinstance(widget, ctk.CTkTextbox):
+                raw = widget.get("1.0", "end").strip()
+            else:
+                raw = str(widget.get()).strip()
+            if raw == "—":
+                raw = ""
+            if field.widget == "date" and raw:
+                raw = self._normalize_date(raw)
+            data[field.column] = raw
+        return data
+
+    @staticmethod
+    def _normalize_date(value: str) -> str:
+        """Convertit une date saisie (JJ/MM/AAAA ou ISO) en ISO ``AAAA-MM-JJ``."""
+        value = value.strip()
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+            try:
+                return datetime.strptime(value, fmt).date().isoformat()
+            except ValueError:
+                continue
+        return value
+
+    def _save(self) -> None:
+        """Valide et enregistre la ligne, puis ferme le formulaire."""
+        data = self._collect()
+        try:
+            self._service.save_row(self._sheet, data, self._row_id)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Enregistrement", f"Échec : {exc}")
+            return
+        self._on_saved()
+        self.destroy()
+
+
 class BovoApp(ctk.CTk):
     """Fenêtre principale du logiciel."""
 
@@ -199,6 +327,7 @@ class BovoApp(ctk.CTk):
         self._settings = settings
         self._planner = Planner(database)
         self._exporter = Exporter(database)
+        self._inspections = InspectionService(database)
         self._calendar_model = CalendarModel()
         self._progress_queue: queue.Queue[tuple] = queue.Queue()
 
@@ -241,6 +370,7 @@ class BovoApp(ctk.CTk):
             ("accueil", "🏠  Accueil"),
             ("calendrier", "📅  Calendrier"),
             ("interventions", "🔍  Interventions"),
+            ("inspections", "🧰  Inspections ASF"),
             ("import", "⬆️  Importer PDF"),
             ("journal", "📝  Journal"),
             ("parametres", "⚙️  Paramètres"),
@@ -279,6 +409,7 @@ class BovoApp(ctk.CTk):
             "accueil": self._view_accueil,
             "calendrier": self._view_calendrier,
             "interventions": self._view_interventions,
+            "inspections": self._view_inspections,
             "import": self._view_import,
             "journal": self._view_journal,
             "parametres": self._view_parametres,
@@ -324,6 +455,23 @@ class BovoApp(ctk.CTk):
             f"·  Dernière mise à jour : {stats['derniere_maj']}",
             font=ctk.CTkFont(size=13),
         ).pack(anchor="w", padx=18, pady=14)
+
+        kpis = self._inspections.kpis()
+        ctk.CTkLabel(
+            frame, text="Indicateurs ASF — Inspections ITV",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).grid(row=5, column=0, columnspan=4, sticky="w", pady=(22, 8))
+        kpi_cards = [
+            ("ML inspectés", kpis["ml_inspectes"], "#457B9D"),
+            ("Inspections", kpis["nb_inspections"], ACCENT),
+            ("Regards", kpis["regards"], "#2A9D8F"),
+            ("Heures totales", kpis["heures"], "#F4A261"),
+            ("ML / heure", kpis["ml_h"], "#9D4EDD"),
+        ]
+        for idx, (label, value, color) in enumerate(kpi_cards):
+            self._stat_card(frame, label, value, color).grid(
+                row=6 + idx // 4, column=idx % 4, padx=8, pady=8, sticky="nsew"
+            )
 
     def _stat_card(
         self, master: ctk.CTkBaseClass, label: str, value: str, color: str
@@ -741,6 +889,154 @@ class BovoApp(ctk.CTk):
         self._import_log.insert("end", f"{text}\n")
         self._import_log.see("end")
         self._import_log.configure(state="disabled")
+
+    # ------------------------------------------------------------------ #
+    # Vue : Inspections ASF (modules éditables du classeur)
+    # ------------------------------------------------------------------ #
+    def _view_inspections(self) -> None:
+        """Affiche les modules ASF éditables (onglets) + import du classeur."""
+        frame = ctk.CTkFrame(self._content, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        ctk.CTkLabel(
+            header, text="Inspections ASF (ITV)",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            header, text="📊  Importer le classeur Excel", fg_color="#43AA8B",
+            hover_color="#369072", command=self._import_workbook,
+        ).pack(side="right")
+
+        tabview = ctk.CTkTabview(frame, fg_color=CARD_BG)
+        tabview.grid(row=1, column=0, sticky="nsew")
+
+        self._insp_search: dict[str, ctk.StringVar] = {}
+        self._insp_tables: dict[str, ctk.CTkScrollableFrame] = {}
+        for sheet in self._inspections.SHEETS:
+            tab = tabview.add(self._inspections.sheet_label(sheet))
+            tab.grid_columnconfigure(0, weight=1)
+            tab.grid_rowconfigure(1, weight=1)
+            self._build_module_tab(tab, sheet)
+            self._refresh_module(sheet)
+
+    def _build_module_tab(self, parent: ctk.CTkBaseClass, sheet: str) -> None:
+        """Construit la barre d'outils et la table d'un module ASF."""
+        toolbar = ctk.CTkFrame(parent, fg_color="transparent")
+        toolbar.grid(row=0, column=0, sticky="ew", pady=8)
+        search_var = ctk.StringVar()
+        search_var.trace_add("write", lambda *_s, sh=sheet: self._refresh_module(sh))
+        self._insp_search[sheet] = search_var
+        ctk.CTkEntry(
+            toolbar, textvariable=search_var, height=36,
+            placeholder_text=f"Rechercher dans {self._inspections.sheet_label(sheet)}…",
+        ).pack(side="left", fill="x", expand=True, padx=(4, 8))
+        ctk.CTkButton(
+            toolbar, text="➕  Ajouter", width=120, fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            command=lambda sh=sheet: self._open_row_form(sh, None),
+        ).pack(side="right", padx=4)
+
+        table = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        table.grid(row=1, column=0, sticky="nsew")
+        self._insp_tables[sheet] = table
+
+    def _refresh_module(self, sheet: str) -> None:
+        """Recharge la table d'un module ASF selon la recherche."""
+        table = self._insp_tables[sheet]
+        for widget in table.winfo_children():
+            widget.destroy()
+        columns = self._inspections.list_columns(sheet)
+        rows = self._inspections.list_rows(sheet, self._insp_search[sheet].get().strip())
+
+        head = ctk.CTkFrame(table, fg_color=CARD_BG, corner_radius=8)
+        head.pack(fill="x", pady=(0, 4))
+        for _col, label in columns:
+            ctk.CTkLabel(
+                head, text=label, width=150, anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).pack(side="left", padx=6, pady=8)
+        ctk.CTkLabel(head, text="", width=80).pack(side="left")
+
+        if not rows:
+            ctk.CTkLabel(
+                table, text="Aucune donnée. Cliquez « Ajouter » ou importez le classeur.",
+                text_color="#9A9AA0",
+            ).pack(anchor="w", pady=20)
+            return
+
+        for row in rows:
+            self._module_row(sheet, row, columns)
+
+    def _module_row(
+        self, sheet: str, row: dict[str, str], columns: list[tuple[str, str]]
+    ) -> None:
+        """Construit une ligne de table de module (éditable + suppression)."""
+        container = ctk.CTkFrame(
+            self._insp_tables[sheet], fg_color=SURFACE, height=40, corner_radius=8
+        )
+        container.pack(fill="x", pady=2)
+        row_id = int(row["id"])
+        handler = lambda _e=None, sh=sheet, rid=row_id: self._open_row_form(sh, rid)  # noqa: E731
+        container.bind("<Button-1>", handler)
+        for col, _label in columns:
+            value = row.get(col, "") or "—"
+            if col == "date":
+                value = format_date_fr(parse_iso_date(row.get(col))) or value
+            label = ctk.CTkLabel(
+                container, text=str(value)[:24], width=150, anchor="w",
+                font=ctk.CTkFont(size=12),
+            )
+            label.pack(side="left", padx=6, pady=8)
+            label.bind("<Button-1>", handler)
+        ctk.CTkButton(
+            container, text="🗑", width=36, fg_color="transparent",
+            text_color=ACCENT, hover_color=CARD_BG,
+            command=lambda sh=sheet, rid=row_id: self._delete_module_row(sh, rid),
+        ).pack(side="right", padx=6)
+
+    def _delete_module_row(self, sheet: str, row_id: int) -> None:
+        """Supprime une ligne de module après confirmation."""
+        if messagebox.askyesno("Suppression", "Supprimer cette entrée ?"):
+            self._inspections.delete_row(sheet, row_id)
+            self._refresh_module(sheet)
+
+    def _open_row_form(self, sheet: str, row_id: int | None) -> None:
+        """Ouvre le formulaire d'ajout/édition d'une ligne de module."""
+        RowFormDialog(
+            self, self._inspections, sheet, row_id,
+            on_saved=lambda: self._refresh_module(sheet),
+        )
+
+    def _import_workbook(self) -> None:
+        """Importe le classeur Excel ASF et synchronise les interventions."""
+        path = filedialog.askopenfilename(
+            title="Sélectionner le classeur Excel ASF",
+            initialdir=str(self._settings.pdf_folder),
+            filetypes=[("Classeur Excel", "*.xlsx")],
+        )
+        if not path:
+            return
+        try:
+            summary = self._inspections.import_workbook(Path(path))
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Import", f"Échec de l'import : {exc}")
+            return
+        for sheet in self._inspections.SHEETS:
+            self._refresh_module(sheet)
+        messagebox.showinfo(
+            "Import réussi",
+            "Classeur importé :\n"
+            f"• Inspections : {summary.get('inspections', 0)}\n"
+            f"• Rapports : {summary.get('rapports', 0)}\n"
+            f"• Incidents : {summary.get('incidents', 0)}\n"
+            f"• Matériel : {summary.get('materiel', 0)}\n"
+            f"• Interventions marquées « Terminée » : "
+            f"{summary.get('interventions_liees', 0)}",
+        )
 
     # ------------------------------------------------------------------ #
     # Vue : Journal

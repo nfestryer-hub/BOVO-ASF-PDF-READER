@@ -20,6 +20,7 @@ from app.parser_pdf import DateParser, PdfParser  # noqa: E402
 from app.planner import Planner  # noqa: E402
 
 SAMPLE_PDF = ROOT / "sample" / "Listing_Ouvrages_BOVO.pdf"
+SAMPLE_XLSX = ROOT / "sample" / "Classeur_ASF.xlsx"
 
 
 @pytest.fixture()
@@ -88,3 +89,46 @@ def test_planner_import_real_pdf(db: Database) -> None:
     stats = planner.get_statistics()
     assert stats["total"] == result.total_interventions
     assert stats["pdfs"] == 1
+
+
+def test_inspection_crud_and_referentiel(db: Database) -> None:
+    from app.inspections import InspectionService
+
+    svc = InspectionService(db)
+    assert "A62" in svc.referentiel("autoroutes")
+    new_id = svc.save_row(
+        "inspections",
+        {"n_inspection": "1", "date": "2026-07-15", "autoroute": "A62",
+         "ml_inspectes": "120", "nb_regards": "4", "heures_totales": "2"},
+    )
+    assert new_id > 0
+    rows = svc.list_rows("inspections")
+    assert len(rows) == 1
+    kpis = svc.kpis()
+    assert kpis["nb_inspections"] == "1"
+    assert kpis["ml_h"] == "60.0"
+    svc.delete_row("inspections", new_id)
+    assert svc.list_rows("inspections") == []
+
+
+def test_rapport_marks_intervention_done(db: Database) -> None:
+    from app.inspections import InspectionService
+    from app.models import Intervention, StatutIntervention
+
+    db.upsert_intervention(Intervention(ouvrage="43854", objet="CANIVEAU"))
+    svc = InspectionService(db)
+    svc.save_row("rapports", {"date": "2026-06-22", "identifiant": "43854"})
+    updated = db.get_intervention_by_ouvrage("43854")
+    assert updated is not None
+    assert updated.statut is StatutIntervention.TERMINEE
+
+
+@pytest.mark.skipif(not SAMPLE_XLSX.exists(), reason="Classeur d'exemple absent")
+def test_import_workbook_real(db: Database) -> None:
+    from app.inspections import InspectionService
+
+    svc = InspectionService(db)
+    summary = svc.import_workbook(SAMPLE_XLSX)
+    assert summary["inspections"] == 8
+    assert summary["rapports"] == 8
+    assert svc.kpis()["regards"] == "56"

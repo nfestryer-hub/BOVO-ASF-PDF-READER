@@ -14,10 +14,11 @@ Développé par HENRI Dylan.
 
 ## Architecture (livrée V1)
 main.py · app/{gui,database,models,parser_pdf,planner,calendar,exporter,
-logger,settings,utils}.py · database/bovo.db · assets/logo.png · tests/.
+inspections,logger,settings,utils}.py · database/bovo.db · assets/logo.png · tests/.
 GUI sans logique métier ; logique répartie dans les modules.
 
-## Implémenté (V1 — 2026-06-30)
+## Implémenté
+### V1 (2026-06-30)
 - Splash animé (logo BOVO + « Développé par HENRI Dylan »), fondu in/out.
 - Accueil « Bonjour {utilisateur} » + dashboard (total, PDF, terminées, à faire,
   autoroutes, secteurs, dernière MAJ, état base).
@@ -35,6 +36,17 @@ GUI sans logique métier ; logique répartie dans les modules.
 - Journal des actions ; paramètres (thème, autosave, dossiers).
 - Qualité : Ruff/Flake8/MyPy 0 erreur ; 12 tests pytest OK ; smoke GUI sous
   Xvfb OK (toutes vues rendues).
+
+### Module Inspections ASF (2026-06-30 — itération 2)
+- Nouveau module `app/inspections.py` (service) + tables dynamiques génériques.
+- 4 modules éditables (CRUD + listes déroulantes du Référentiel) : Inspections,
+  Rapports d'inspection, Incidents, Matériel.
+- Import du classeur Excel ASF (8 inspections / 8 rapports / 2 incidents /
+  8 matériels + Référentiel).
+- Complétion AUTO : un rapport (Identifiant) marque l'intervention liée
+  « Terminée » → vert dans le calendrier.
+- KPIs ASF au dashboard (ML inspectés 2518, regards 56, heures 38.2, ML/h 65.8).
+- 15 tests pytest OK ; Ruff/MyPy/Flake8 0 erreur ; smoke GUI Xvfb OK.
 
 ## Personas
 - Planificateur BOVO : importe les listings, suit le planning, exporte.

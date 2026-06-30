@@ -358,3 +358,101 @@ class Database:
             self._conn.commit()
             self._conn.close()
         logger.info("Connexion base fermée.")
+
+    # ------------------------------------------------------------------ #
+    # Tables dynamiques (modules ASF : inspections, rapports, ...)
+    # ------------------------------------------------------------------ #
+    def ensure_tables_from_specs(self, specs: dict[str, list[str]]) -> None:
+        """Crée des tables texte génériques à partir d'un registre de colonnes.
+
+        Args:
+            specs: ``{nom_table: [colonnes]}``. Les noms sont issus d'un registre
+                interne de confiance (aucune entrée utilisateur directe).
+        """
+        self._dynamic: dict[str, set[str]] = getattr(self, "_dynamic", {})
+        with self._lock:
+            for table, columns in specs.items():
+                coldefs = ", ".join(f'"{c}" TEXT DEFAULT \'\'' for c in columns)
+                self._conn.executescript(
+                    f'CREATE TABLE IF NOT EXISTS "{table}" '
+                    f"(id INTEGER PRIMARY KEY AUTOINCREMENT, {coldefs}, "
+                    f"created_at TEXT, updated_at TEXT);"
+                )
+                self._dynamic[table] = set(columns)
+            self._conn.commit()
+
+    def _check_table(self, table: str) -> set[str]:
+        """Valide qu'une table dynamique est connue et retourne ses colonnes."""
+        registry: dict[str, set[str]] = getattr(self, "_dynamic", {})
+        if table not in registry:
+            raise ValueError(f"Table dynamique inconnue : {table}")
+        return registry[table]
+
+    def insert_generic(self, table: str, data: dict[str, str]) -> int:
+        """Insère une ligne dans une table dynamique. Retourne l'id créé."""
+        allowed = self._check_table(table)
+        payload = {k: v for k, v in data.items() if k in allowed}
+        now = datetime.now(UTC).isoformat()
+        payload["created_at"] = now
+        payload["updated_at"] = now
+        cols = ", ".join(f'"{c}"' for c in payload)
+        placeholders = ", ".join(["?"] * len(payload))
+        with self._lock:
+            cur = self._conn.execute(
+                f'INSERT INTO "{table}" ({cols}) VALUES ({placeholders})',
+                tuple(payload.values()),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid or 0)
+
+    def update_generic(self, table: str, row_id: int, data: dict[str, str]) -> None:
+        """Met à jour une ligne d'une table dynamique."""
+        allowed = self._check_table(table)
+        payload = {k: v for k, v in data.items() if k in allowed}
+        payload["updated_at"] = datetime.now(UTC).isoformat()
+        assignments = ", ".join(f'"{c}" = ?' for c in payload)
+        with self._lock:
+            self._conn.execute(
+                f'UPDATE "{table}" SET {assignments} WHERE id = ?',
+                (*payload.values(), row_id),
+            )
+            self._conn.commit()
+
+    def delete_generic(self, table: str, row_id: int) -> None:
+        """Supprime une ligne d'une table dynamique."""
+        self._check_table(table)
+        with self._lock:
+            self._conn.execute(f'DELETE FROM "{table}" WHERE id = ?', (row_id,))
+            self._conn.commit()
+
+    def clear_table(self, table: str) -> None:
+        """Vide entièrement une table dynamique (utilisé au ré-import)."""
+        self._check_table(table)
+        with self._lock:
+            self._conn.execute(f'DELETE FROM "{table}"')
+            self._conn.commit()
+
+    def list_generic(self, table: str, search: str = "") -> list[dict[str, str]]:
+        """Liste les lignes d'une table dynamique, filtrées par recherche libre."""
+        allowed = self._check_table(table)
+        query = f'SELECT * FROM "{table}"'
+        params: list[str] = []
+        if search:
+            clause = " OR ".join(f'"{c}" LIKE ?' for c in allowed)
+            query += f" WHERE {clause}"
+            params = [f"%{search}%"] * len(allowed)
+        query += " ORDER BY id DESC"
+        with self._lock:
+            cur = self._conn.execute(query, params)
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def get_generic(self, table: str, row_id: int) -> dict[str, str] | None:
+        """Retourne une ligne d'une table dynamique par son id."""
+        self._check_table(table)
+        with self._lock:
+            cur = self._conn.execute(
+                f'SELECT * FROM "{table}" WHERE id = ?', (row_id,)
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None

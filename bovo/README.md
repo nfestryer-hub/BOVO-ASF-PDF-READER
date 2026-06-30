@@ -65,10 +65,20 @@ d'accueil « Bonjour {utilisateur} » et tableau de bord.
    s'effectue en arrière-plan avec barre de progression.
 2. **Calendrier** : vue mensuelle, nombre d'interventions par jour, couleurs par
    statut, clic pour ouvrir la fiche détaillée (avec bouton « Ouvrir le PDF »).
+   Une intervention dont un rapport ASF existe passe automatiquement « Terminée »
+   (vert) ; le statut reste modifiable manuellement dans la fiche.
 3. **Interventions** : recherche instantanée + filtres (statut, autoroute) et
    exports Excel / CSV / JSON / PDF.
-4. **Journal** : historique complet des actions.
-5. **Paramètres** : thème, sauvegarde automatique, dossiers.
+4. **Inspections ASF (ITV)** : modules éditables directement dans le logiciel —
+   *Inspections*, *Rapports d'inspection*, *Incidents*, *Matériel* — avec listes
+   déroulantes issues du Référentiel. Bouton « Importer le classeur Excel » pour
+   initialiser les données. Saisir un rapport pour un ouvrage marque
+   automatiquement l'intervention correspondante comme « Terminée ».
+5. **Journal** : historique complet des actions.
+6. **Paramètres** : thème, sauvegarde automatique, dossiers.
+
+Le tableau de bord recalcule les indicateurs ASF (ML inspectés, nombre
+d'inspections, regards, heures totales, ML/h) à partir des inspections saisies.
 
 ## Formats de dates reconnus
 
