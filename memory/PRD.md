@@ -18,6 +18,34 @@ inspections,logger,settings,utils}.py · database/bovo.db · assets/logo.png · 
 GUI sans logique métier ; logique répartie dans les modules.
 
 ## Implémenté
+### V1.5 (2026-07-01) — Migration REST complète du GUI ✅
+- **BovoApp** accepte désormais `client=` et instancie `RemotePlanner` /
+  `RemoteInspectionService` / `RemoteDocumentService` à la place des services
+  SQLite locaux. La DB locale ne sert plus qu'aux paramètres, journal
+  local et cache offline.
+- **Backend** : renommage `observations→commentaire` + ajout `longueur`,
+  `diametre` sur `Intervention` (models.py + schemas.py). Nécessite un
+  drop/create DB (pas de migrations Alembic).
+- **RemotePlanner** aligné exactement sur `Planner` (compat GUI) :
+  * `get_statistics()` → `{total, terminees, a_faire, pdfs, autoroutes,
+    secteurs, derniere_maj, db_ok}` (plus `avec_pdf`).
+  * `filter_options()` → `{autoroutes, secteurs, statuts}` (plus de
+    préfixes `Toutes/Tous`).
+  * `build_calendar(year, month)` utilise `CalendarModel.build_month`.
+  * `list_between(start, end)` accepte str ISO ou `date`.
+  * `search(...)` accepte `search/statut/autoroute/secteur/ouvrage/query`.
+  * `upsert()` sérialise `commentaire`, `longueur`, `diametre`.
+  * `import_pdfs()` renvoie un `ImportResult` mirror (files_processed,
+    interventions_created, interventions_updated, errors: list[str]).
+- **RemoteInspectionService** : ajout `referentiel(ref_key)` (cache local
+  depuis `DEFAULT_REFERENTIEL`) ; `kpis()` renvoie `nb_inspections` + `ml_h`.
+- **RemoteDocumentService** utilisé pour download/upload ; ouverture native
+  passe désormais par un cache temp `%TEMP%/bovo-docs/`.
+- **RemoteUser** : ajout du champ `last_login`.
+- `main.py` passe `client=client` à `BovoApp()`.
+- **Tests** : 47/47 pytest ✅ + smoke_test_gui.py ✅ + repro_remember_gui.py ✅
+  (testing agent iter 2 validé 100%).
+
 ### V1.4 (2026-07-01) — Bug fix « Se souvenir de moi »
 - **RCA** : sous Windows (antivirus agressif), le WAL SQLite était perdu à la fermeture ⇒
   refresh_token jamais persisté. `Database.close()` force désormais un
