@@ -18,6 +18,20 @@ inspections,logger,settings,utils}.py · database/bovo.db · assets/logo.png · 
 GUI sans logique métier ; logique répartie dans les modules.
 
 ## Implémenté
+### V1.4 (2026-07-01) — Bug fix « Se souvenir de moi »
+- **RCA** : sous Windows (antivirus agressif), le WAL SQLite était perdu à la fermeture ⇒
+  refresh_token jamais persisté. `Database.close()` force désormais un
+  `PRAGMA wal_checkpoint(TRUNCATE)` avant fermeture.
+- `RemoteAuthService.try_auto_login` distingue maintenant :
+  - HTTP 401/403 (token expiré/révoqué) → renvoie `None`, appelant purge.
+  - Erreur réseau / 5xx (serveur down) → lève `AutoLoginNetworkError`,
+    appelant NE purge PAS, on retombe seulement sur le login manuel.
+- `main._launch_login` catch `AutoLoginNetworkError` séparément (token conservé).
+- `LoginDialog._attempt_login` : logs détaillés + relecture post-écriture du
+  refresh_token pour diagnostiquer toute défaillance en prod chez l'utilisateur.
+- Tests pytest ajoutés : `tests/test_remember_me.py` (6/6 PASS) + repro
+  end-to-end xvfb `/tmp/repro_remember_gui.py`. Suite totale : **47/47 PASS**.
+
 ### V1 (2026-06-30)
 - Splash animé (logo BOVO + « Développé par HENRI Dylan »), fondu in/out.
 - Accueil « Bonjour {utilisateur} » + dashboard (total, PDF, terminées, à faire,
