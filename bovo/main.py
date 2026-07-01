@@ -31,7 +31,7 @@ from app.api_client import ApiClient, ApiError
 from app.database import Database
 from app.gui import BovoApp, LoginDialog, SplashScreen
 from app.logger import LogAction, configure_logging, log_action
-from app.remote_services import RemoteAuditService, RemoteAuthService
+from app.remote_services import AutoLoginNetworkError, RemoteAuditService, RemoteAuthService
 from app.server_config_dialog import ServerConfigDialog
 from app.session import Session
 from app.settings import Settings
@@ -94,13 +94,29 @@ def main() -> int:
     def _launch_login() -> None:
         """Ouvre l'écran de connexion (ou tente un auto-login)."""
         # 1. Tentative de reconnexion silencieuse via le refresh token JWT.
-        if settings.remembered_refresh_token:
-            user = auth.try_auto_login(settings.remembered_refresh_token)
-            if user is not None:
-                _after_login()
-                return
-            # Refresh token expiré → purge et retour au login manuel.
-            settings.forget()
+        remembered = settings.remembered_refresh_token
+        if remembered:
+            logger.info(
+                "Auto-login : tentative avec un refresh token persisté (user=%r).",
+                settings.remembered_username,
+            )
+            try:
+                user = auth.try_auto_login(remembered)
+            except AutoLoginNetworkError as exc:
+                # Serveur/net indispo → on garde le token, on retombe sur le
+                # login manuel avec le nom pré-rempli.
+                logger.warning(
+                    "Auto-login : serveur injoignable (%s). Token conservé.", exc,
+                )
+                user = None
+            else:
+                if user is not None:
+                    logger.info("Auto-login réussi (user=%s).", user.username)
+                    _after_login()
+                    return
+                # Refresh token vraiment expiré → purge (401/403).
+                logger.info("Auto-login : token expiré/invalide — purge locale.")
+                settings.forget()
         # 2. Écran de connexion classique.
         LoginDialog(
             app, auth,

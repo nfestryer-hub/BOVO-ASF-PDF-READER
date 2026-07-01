@@ -362,9 +362,20 @@ class Database:
         return [r["v"] for r in rows]
 
     def close(self) -> None:
-        """Ferme proprement la connexion SQLite."""
+        """Ferme proprement la connexion SQLite.
+
+        Effectue un checkpoint WAL explicite (TRUNCATE) pour garantir que
+        toutes les écritures sont fusionnées dans le fichier principal
+        avant la fermeture. Sans ça, certains environnements (Windows +
+        antivirus, disques USB, arrêt brutal) peuvent perdre les dernières
+        écritures — notamment le refresh token de « Se souvenir de moi ».
+        """
         with self._lock:
-            self._conn.commit()
+            try:
+                self._conn.commit()
+                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            except sqlite3.Error as exc:  # noqa: BLE001 — best-effort
+                logger.warning("Checkpoint WAL échoué : %s", exc)
             self._conn.close()
         logger.info("Connexion base fermée.")
 

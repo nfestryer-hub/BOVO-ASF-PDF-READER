@@ -31,9 +31,20 @@ from app.inspections import (
     SHEET_LABELS,
     FieldSpec,
 )
+from app.logger import get_logger
 from app.models import Intervention, StatutIntervention
 from app.session import RemoteUser, Session
 from app.utils import parse_iso_date
+
+logger = get_logger("remote_services")
+
+
+class AutoLoginNetworkError(RuntimeError):
+    """L'auto-login a échoué à cause d'une erreur réseau/serveur transitoire.
+
+    Signale à l'appelant qu'il ne faut PAS purger le refresh token
+    persisté — l'utilisateur pourra retenter plus tard.
+    """
 
 
 # Mapping colonne → libellé, déduit du schéma FORM_FIELDS partagé.
@@ -101,17 +112,46 @@ class RemoteAuthService:
 
         Utilise ``POST /api/auth/refresh`` pour obtenir un nouvel access
         token, puis ``GET /api/auth/me`` pour récupérer l'utilisateur.
-        Retourne ``None`` si le token est expiré ou invalide.
+
+        Retourne ``None`` si :
+          * le token est expiré / invalide (HTTP 401/403) → l'appelant DOIT
+            purger le refresh token persisté ;
+          * le serveur est temporairement injoignable → l'appelant NE DOIT
+            PAS purger le token (transient error).
+
+        Lève :class:`AutoLoginNetworkError` sur erreur réseau/serveur pour
+        que ``main._launch_login`` distingue les deux cas.
         """
         if not refresh_token:
+            logger.info("try_auto_login: aucun refresh_token fourni.")
             return None
         self._client.set_tokens("", refresh_token)
         try:
             self._client.refresh_access_token()
             me = self._client.me()
-        except ApiError:
+        except ApiError as exc:
+            # 401/403 = token révoqué/expiré → on purge côté appelant.
+            if exc.status_code in (401, 403):
+                logger.info(
+                    "try_auto_login: refresh token invalide (HTTP %s) — purge.",
+                    exc.status_code,
+                )
+                self._client.logout()
+                return None
+            # Autre code (500, 502…) : problème serveur, on conserve le token.
+            logger.warning(
+                "try_auto_login: erreur serveur HTTP %s — token conservé.",
+                exc.status_code,
+            )
             self._client.logout()
-            return None
+            raise AutoLoginNetworkError(str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 — timeout, ConnectionError…
+            logger.warning(
+                "try_auto_login: erreur réseau (%s) — token conservé.", exc,
+            )
+            self._client.logout()
+            raise AutoLoginNetworkError(str(exc)) from exc
+        logger.info("try_auto_login: succès (user=%s).", me.get("username"))
         return self._session.bind(me)
 
     # ------------------------------------------------------------------ #

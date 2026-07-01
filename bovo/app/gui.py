@@ -202,13 +202,40 @@ class LoginDialog(ctk.CTkToplevel):
             return
         # Gestion « Se souvenir de moi » — stocke le refresh_token JWT.
         if self._settings is not None:
-            if self._remember_me.get():
+            checked = bool(self._remember_me.get())
+            logger.info(
+                "LoginDialog: connexion OK (user=%s) — remember_me=%s.",
+                username, checked,
+            )
+            if checked:
                 refresh_token = ""
                 client = getattr(self._auth, "_client", None)
                 if client is not None:
-                    refresh_token = client.tokens.refresh_token
+                    refresh_token = client.tokens.refresh_token or ""
+                logger.info(
+                    "LoginDialog: refresh_token %s (%d chars).",
+                    "présent" if refresh_token else "absent",
+                    len(refresh_token),
+                )
                 if refresh_token:
                     self._settings.remember(username, refresh_token)
+                    # Vérification post-écriture : on relit depuis SQLite
+                    # pour s'assurer que la persistance a bien fonctionné.
+                    stored = self._settings.remembered_refresh_token
+                    if stored != refresh_token:
+                        logger.error(
+                            "LoginDialog: persistance du refresh_token ÉCHOUÉE "
+                            "(stored=%d chars, expected=%d).",
+                            len(stored), len(refresh_token),
+                        )
+                    else:
+                        logger.info(
+                            "LoginDialog: refresh_token persisté avec succès.",
+                        )
+                else:
+                    logger.warning(
+                        "LoginDialog: refresh_token vide — rien à persister.",
+                    )
             else:
                 self._settings.forget()
         self._error_label.configure(text="")

@@ -1,0 +1,33 @@
+{
+  "summary": "Backend/desktop-app testing of the 'Remember Me' auto-login bug fix for the BOVO CustomTkinter app. Executed the full pytest suite (47 tests) and the end-to-end GUI repro script under xvfb. All success criteria met: pytest 47/47 PASS (including 6/6 new tests in tests/test_remember_me.py) and /tmp/repro_remember_gui.py exits 0 with 'AUTO-LOGIN OK (Bovo / Admin)'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/bovo/tests/test_bovo.py",
+    "/app/bovo/tests/test_remember_me.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/tmp/repro_remember_gui.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Bug fix is validated: Database.close() now issues PRAGMA wal_checkpoint(TRUNCATE), ensuring the refresh_token is flushed from the SQLite WAL to the main DB file before the app exits. This is the concrete root cause for the user's Windows/antivirus environment where the WAL was being discarded before commit.",
+    "RemoteAuthService.try_auto_login now correctly distinguishes network failures (raises AutoLoginNetworkError so the token is retained) from HTTP 401/403 (returns None and clears client.tokens so main._launch_login can purge). Test coverage exists for both branches (test_try_auto_login_raises_network_error, test_try_auto_login_purges_on_401).",
+    "test_remember_me.py::test_remember_persists_across_reopen exercises the exact close/reopen cycle the user reported and passes. Combined with /tmp/repro_remember_gui.py which drives the real LoginDialog + real backend at 127.0.0.1:8765 + real refresh_token roundtrip, coverage of the reported bug is strong.",
+    "Nit (non-blocking): tests/test_remember_me.py imports RemoteAuthService via app.remote_services but relies on process-level sys.path insertion — fine for pytest run from /app/bovo but would break if invoked from another cwd. Not a defect for this iteration."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (47/47 pytest + repro script exit 0)", "frontend": "N/A (desktop app, no web frontend)"},
+  "test_credentials": "Bovo / ibak23 (seeded admin) against http://127.0.0.1:8765 backed by PostgreSQL on /tmp/pgdata:5433",
+  "seed_data_creation": "None — used pre-seeded admin 'Bovo' from the running backend.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend uvicorn is running (PID 4970) on 127.0.0.1:8765, PostgreSQL on /tmp/pgdata port 5433 (started via sudo -u postgres pg_ctl). To re-run: `cd /app/bovo && xvfb-run -a python -m pytest tests/ -v` and `cd /app/bovo && xvfb-run -a python /tmp/repro_remember_gui.py`. Both must exit 0. The 6 remember-me tests are in tests/test_remember_me.py.",
+  "rca of the issue": "Root cause: on the user's Windows machine with aggressive antivirus, SQLite's WAL file (settings.db-wal) was being closed/discarded before the checkpoint had merged the pending writes into settings.db, so the just-remembered refresh_token was lost the moment the app exited. Mitigation applied by main agent (verified here): Database.close() now runs PRAGMA wal_checkpoint(TRUNCATE) BEFORE closing the connection, forcing every pending WAL page to be flushed into the main file. In addition, RemoteAuthService.try_auto_login now separates transient network errors (raises AutoLoginNetworkError, token kept) from real invalid-token responses (returns None, token cleared), preventing the previous behaviour where a momentary network hiccup would purge a perfectly valid refresh_token. LoginDialog._attempt_login also performs a post-write read-back of settings.remembered_refresh_token with a log line, giving diagnostics if the write silently fails."
+}
