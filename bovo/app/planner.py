@@ -1,4 +1,4 @@
-"""Chef d'orchestre métier de BOVO Planning Manager.
+"""Chef d'orchestre métier de Bovo ASF Manager.
 
 ``planner.py`` coordonne l'ensemble du pipeline :
 

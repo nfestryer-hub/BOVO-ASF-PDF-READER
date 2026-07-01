@@ -1,4 +1,4 @@
-"""Gestion documentaire de BOVO Planning Manager.
+"""Gestion documentaire de Bovo ASF Manager.
 
 Attache des fichiers (PDF, images, docs) à une intervention ou un rapport.
 Les fichiers sont copiés localement dans ``bovo/documents/<AAAA>/<uuid>.<ext>``

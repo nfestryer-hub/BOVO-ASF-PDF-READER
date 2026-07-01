@@ -1,4 +1,4 @@
-"""Fonctions utilitaires transverses de BOVO Planning Manager.
+"""Fonctions utilitaires transverses de Bovo ASF Manager.
 
 Regroupe des helpers sans état : récupération du nom d'utilisateur système,
 ouverture native de fichiers, normalisation de texte, garanties de répertoires,

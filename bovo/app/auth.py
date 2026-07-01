@@ -1,4 +1,4 @@
-"""Authentification locale de BOVO Planning Manager.
+"""Authentification locale de Bovo ASF Manager.
 
 Auth mono-poste (SQLite locale) — trois rôles :
 
@@ -215,6 +215,40 @@ class AuthService:
                 f"Déconnexion : {self._session.user.username}.",
             )
         self._session.user = None
+
+    def try_auto_login(self, username: str, stored_hash: str) -> User | None:
+        """Tente une reconnexion silencieuse avec un hash déjà validé.
+
+        Utilisé par la case « Se souvenir de moi » : au lancement suivant,
+        on relit le username + le hash stocké localement (dans les settings)
+        et on vérifie qu'il correspond bien au hash actuel en base. Si oui,
+        l'utilisateur est reconnecté sans saisie.
+
+        Args:
+            username: Nom d'utilisateur mémorisé.
+            stored_hash: Hash bcrypt persisté côté client.
+
+        Returns:
+            L'utilisateur reconnecté, ou ``None`` si le hash ne correspond
+            plus (mot de passe changé côté serveur) ou si l'utilisateur
+            n'existe plus.
+        """
+        username = (username or "").strip()
+        if not username or not stored_hash:
+            return None
+        row = self._db.get_user_by_username(username)
+        if row is None or row["password_hash"] != stored_hash:
+            return None
+        now = datetime.now(UTC).isoformat()
+        self._db.touch_user_login(int(row["id"]), now)
+        user = User.from_row({**row, "last_login": now})
+        self._session.user = user
+        log_action(
+            self._db, LogAction.OPEN,
+            f"Reconnexion automatique : {user.username}.",
+            level=LogLevel.SUCCESS,
+        )
+        return user
 
     # ------------------------------------------------------------------ #
     # Session

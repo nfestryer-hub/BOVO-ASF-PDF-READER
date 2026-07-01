@@ -21,6 +21,34 @@ from app.utils import format_date_fr
 
 logger = get_logger("exporter")
 
+
+def _compute_column_widths(
+    headers: list[str], rows: list[list[str]], usable_w: float,
+    *, min_w: float = 42.0, sample: int = 60,
+) -> list[float]:
+    """Calcule des largeurs de colonnes proportionnelles au contenu.
+
+    Prend la longueur maximale (en caractères) observée dans chaque colonne
+    (parmi l'en-tête et un échantillon des lignes) puis répartit ``usable_w``
+    au prorata, en garantissant une largeur minimale par colonne.
+    """
+    n = max(len(headers), 1)
+    max_chars = [max(len(h or ""), 8) for h in headers]
+    for row in rows[:sample]:
+        for idx in range(n):
+            value = row[idx] if idx < len(row) else ""
+            length = min(len(str(value or "")), 60)  # borne pour éviter les cas extrêmes.
+            if length > max_chars[idx]:
+                max_chars[idx] = length
+    total = sum(max_chars)
+    if total <= 0:
+        return [usable_w / n] * n
+    raw = [(m / total) * usable_w for m in max_chars]
+    # Applique le plancher (min_w) puis normalise.
+    widths = [max(min_w, w) for w in raw]
+    scale = usable_w / sum(widths)
+    return [w * scale for w in widths]
+
 _COLUMNS: tuple[tuple[str, str], ...] = (
     ("ouvrage", "Ouvrage"),
     ("objet", "Objet"),
@@ -105,7 +133,7 @@ class Exporter:
         margin, top = 40, 60
         page.insert_text(
             (margin, 40),
-            f"BOVO Planning Manager — Export du {format_date_fr(date.today())}",
+            f"Bovo ASF Manager — Export du {format_date_fr(date.today())}",
             fontsize=14,
         )
         line_height = 16
@@ -135,6 +163,12 @@ class Exporter:
     ) -> Path:
         """Exporte un tableau générique (mode tableur) au format PDF paysage.
 
+        Le PDF est généré au format **A3 paysage** (1191 × 842 pt) pour offrir
+        largement l'espace nécessaire aux modules ASF qui comportent jusqu'à
+        13 colonnes. Les colonnes sont dimensionnées proportionnellement à la
+        longueur du contenu et le texte est rendu via ``insert_textbox`` afin
+        d'assurer un retour à la ligne automatique.
+
         Args:
             title: Titre imprimé en haut de la première page.
             headers: Libellés des colonnes.
@@ -146,58 +180,89 @@ class Exporter:
         """
         destination.parent.mkdir(parents=True, exist_ok=True)
         document = fitz.open()
-        page_width, page_height = 842.0, 595.0  # A4 paysage
-        margin_x, margin_y = 30.0, 40.0
-        header_h = 22.0
-        row_h = 18.0
+        # A3 paysage — lisibilité maximale pour tables larges.
+        page_width, page_height = 1191.0, 842.0
+        margin_x, margin_y = 34.0, 48.0
         usable_w = page_width - 2 * margin_x
-        n_cols = max(len(headers), 1)
-        col_w = usable_w / n_cols
 
-        def new_page() -> tuple[fitz.Page, float]:
+        n_cols = max(len(headers), 1)
+        col_widths = _compute_column_widths(headers, rows, usable_w)
+
+        header_font_size = 9
+        cell_font_size = 8.5
+        line_height = cell_font_size + 3
+
+        def _content_lines(text: str, width: float) -> int:
+            """Estime combien de lignes le texte occupera dans une cellule."""
+            if not text:
+                return 1
+            char_w = cell_font_size * 0.52
+            max_chars = max(int((width - 6) / char_w), 6)
+            total = 1
+            for chunk in text.replace("\r", "").split("\n"):
+                total += max((len(chunk) - 1) // max_chars, 0)
+            return max(total, 1)
+
+        def _draw_cell(
+            page: fitz.Page, x: float, y: float, w: float, h: float,
+            text: str, *, header: bool,
+        ) -> None:
+            """Dessine une cellule (bordure + texte avec retour à la ligne)."""
+            rect = fitz.Rect(x, y, x + w, y + h)
+            if header:
+                page.draw_rect(
+                    rect, color=(0.1, 0.1, 0.1),
+                    fill=(0.9, 0.23, 0.27), width=0.4,
+                )
+                fontsize, color = header_font_size, (1.0, 1.0, 1.0)
+                fontname = "hebo"
+            else:
+                page.draw_rect(rect, color=(0.6, 0.6, 0.6), width=0.3)
+                fontsize, color = cell_font_size, (0.05, 0.05, 0.05)
+                fontname = "helv"
+            text_rect = fitz.Rect(x + 3, y + 2, x + w - 2, y + h - 1)
+            page.insert_textbox(
+                text_rect, text or "", fontsize=fontsize, color=color,
+                fontname=fontname, align=fitz.TEXT_ALIGN_LEFT,
+            )
+
+        def _new_page() -> tuple[fitz.Page, float]:
             page = document.new_page(width=page_width, height=page_height)
             page.insert_text(
-                (margin_x, margin_y - 12),
+                (margin_x, margin_y - 22),
                 f"{title} — {format_date_fr(date.today())}",
-                fontsize=13,
+                fontsize=14, color=(0.05, 0.05, 0.05), fontname="hebo",
             )
-            _draw_row(page, margin_y, headers, header_h, filled=True)
+            # En-tête de tableau.
+            x = margin_x
+            header_h = header_font_size + 8
+            for idx, label in enumerate(headers):
+                _draw_cell(page, x, margin_y, col_widths[idx], header_h,
+                           label, header=True)
+                x += col_widths[idx]
             return page, margin_y + header_h
 
-        def _draw_row(
-            page: fitz.Page, y: float, cells: list[str], height: float, *, filled: bool
-        ) -> None:
-            for idx, value in enumerate(cells):
-                rect = fitz.Rect(
-                    margin_x + idx * col_w, y,
-                    margin_x + (idx + 1) * col_w, y + height,
-                )
-                if filled:
-                    page.draw_rect(rect, color=(0.1, 0.1, 0.1), fill=(0.9, 0.23, 0.27), width=0.5)
-                    color = (1.0, 1.0, 1.0)
-                else:
-                    page.draw_rect(rect, color=(0.6, 0.6, 0.6), width=0.4)
-                    color = (0.05, 0.05, 0.05)
-                text = (value or "").replace("\n", " ")
-                max_chars = max(int(col_w / 4.6), 6)
-                if len(text) > max_chars:
-                    text = text[: max_chars - 1] + "…"
-                page.insert_text(
-                    (rect.x0 + 4, rect.y0 + height - 6),
-                    text, fontsize=8, color=color,
-                )
-
-        page, y = new_page()
+        page, y = _new_page()
         for row in rows:
-            if y + row_h > page_height - margin_y:
-                page, y = new_page()
             padded = list(row) + [""] * max(0, n_cols - len(row))
-            _draw_row(page, y, padded[:n_cols], row_h, filled=False)
+            row_lines = max(
+                _content_lines(padded[i] or "", col_widths[i])
+                for i in range(n_cols)
+            )
+            row_h = row_lines * line_height + 4
+            if y + row_h > page_height - margin_y - 20:
+                page, y = _new_page()
+            x = margin_x
+            for idx in range(n_cols):
+                _draw_cell(page, x, y, col_widths[idx], row_h,
+                           padded[idx] or "", header=False)
+                x += col_widths[idx]
             y += row_h
 
+        # Pied de page : nombre de lignes + auteur, sur la dernière page.
         page.insert_text(
-            (margin_x, page_height - 15),
-            f"{len(rows)} ligne(s) — Développé par HENRI Dylan",
+            (margin_x, page_height - 20),
+            f"{len(rows)} ligne(s) — Bovo ASF Manager · Développé par HENRI Dylan",
             fontsize=8, color=(0.4, 0.4, 0.4),
         )
         document.save(str(destination))

@@ -343,3 +343,68 @@ def test_documents_attach_list_delete(tmp_path: Path, db: Database) -> None:
     assert svc.delete(doc.id) is True
     assert not Path(doc.storage_path).exists()
     assert svc.list_for("rapports", "42") == []
+
+
+# ---------------------------------------------------------------------- #
+# « Se souvenir de moi » + auto-login
+# ---------------------------------------------------------------------- #
+def test_auth_auto_login_from_remembered_hash(db: Database) -> None:
+    from app.auth import AuthService
+    from app.settings import Settings
+
+    auth = AuthService(db)
+    settings = Settings(db)
+
+    # Login manuel puis mémorisation.
+    user = auth.login("Bovo", "ibak23")
+    assert user is not None
+    row = db.get_user_by_username("Bovo")
+    assert row is not None
+    settings.remember("Bovo", row["password_hash"])
+    assert settings.remembered_username == "Bovo"
+
+    # Nouvelle session : essai d'auto-login à partir du hash mémorisé.
+    auth2 = AuthService(db)
+    reconnected = auth2.try_auto_login(
+        settings.remembered_username, settings.remembered_hash,
+    )
+    assert reconnected is not None
+    assert reconnected.username == "Bovo"
+
+    # Un hash obsolète (mot de passe changé) doit refuser l'auto-login.
+    settings.remember("Bovo", "$2b$12$obsolete_hash_that_does_not_match")
+    auth3 = AuthService(db)
+    assert auth3.try_auto_login(
+        settings.remembered_username, settings.remembered_hash,
+    ) is None
+
+
+def test_settings_forget_clears_remembered(db: Database) -> None:
+    from app.settings import Settings
+
+    settings = Settings(db)
+    settings.remember("Bovo", "$2b$12$abc")
+    assert settings.remembered_username == "Bovo"
+    settings.forget()
+    assert settings.remembered_username == ""
+    assert settings.remembered_hash == ""
+
+
+# ---------------------------------------------------------------------- #
+# Export PDF : largeurs de colonnes calculées
+# ---------------------------------------------------------------------- #
+def test_compute_column_widths_respects_content(tmp_path: Path) -> None:
+    from app.exporter import _compute_column_widths
+
+    headers = ["ID", "Descripton très longue de la colonne", "Statut"]
+    rows = [
+        ["1", "Rapport d'inspection ITV du secteur Garonne A62", "Terminée"],
+        ["2", "Autre", "En cours"],
+    ]
+    widths = _compute_column_widths(headers, rows, usable_w=1000.0)
+    assert len(widths) == 3
+    # La colonne « descripton longue » doit être plus large que « ID ».
+    assert widths[1] > widths[0]
+    assert widths[1] > widths[2]
+    # La somme est conservée (usable_w).
+    assert abs(sum(widths) - 1000.0) < 0.5

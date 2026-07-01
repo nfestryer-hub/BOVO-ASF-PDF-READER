@@ -1,4 +1,4 @@
-"""Module métier des inspections ASF (ITV) de BOVO Planning Manager.
+"""Module métier des inspections ASF (ITV) de Bovo ASF Manager.
 
 Gère les modules éditables issus du classeur Excel — Inspections, Rapports
 d'inspection, Incidents et Matériel — entièrement dans le logiciel (plus besoin
@@ -450,7 +450,7 @@ class InspectionService:
             [(row.get(c, "") or "") for c in columns]
             for row in self._db.list_generic(sheet)
         ]
-        title = f"BOVO Planning Manager — {SHEET_LABELS[sheet]}"
+        title = f"Bovo ASF Manager — {SHEET_LABELS[sheet]}"
         return exporter.table_to_pdf(title, headers, rows, destination)
 
     # ------------------------------------------------------------------ #

@@ -1,4 +1,4 @@
-"""Modèle logique du calendrier mensuel de BOVO Planning Manager.
+"""Modèle logique du calendrier mensuel de Bovo ASF Manager.
 
 Construit la grille d'un mois et y projette les interventions par journée,
 avec un code couleur dépendant du statut. Aucune dépendance GUI : ce module

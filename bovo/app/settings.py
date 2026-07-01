@@ -1,4 +1,4 @@
-"""Gestion des paramètres applicatifs de BOVO Planning Manager.
+"""Gestion des paramètres applicatifs de Bovo ASF Manager.
 
 Les paramètres sont persistés dans la table ``settings`` de SQLite. Cette
 classe expose des accès typés (thème, dernier dossier, dimensions de fenêtre,
@@ -26,6 +26,8 @@ _DEFAULTS: dict[str, Any] = {
     "pdf_folder": str(PROJECT_ROOT / "sample"),
     "export_folder": str(EXPORT_DIR),
     "auto_save": True,
+    "remembered_username": "",
+    "remembered_hash": "",
 }
 
 
@@ -90,3 +92,26 @@ class Settings:
     def auto_save(self) -> bool:
         """Indique si la sauvegarde automatique est active."""
         return bool(self._cache["auto_save"])
+
+    # ------------------------------------------------------------------ #
+    # « Se souvenir de moi » — session locale persistée
+    # ------------------------------------------------------------------ #
+    @property
+    def remembered_username(self) -> str:
+        """Retourne le nom d'utilisateur mémorisé (ou chaîne vide)."""
+        return str(self._cache.get("remembered_username") or "")
+
+    @property
+    def remembered_hash(self) -> str:
+        """Retourne le hash bcrypt du mot de passe mémorisé (ou vide)."""
+        return str(self._cache.get("remembered_hash") or "")
+
+    def remember(self, username: str, password_hash: str) -> None:
+        """Persiste la session pour un auto-login au prochain lancement."""
+        self.set("remembered_username", username)
+        self.set("remembered_hash", password_hash)
+
+    def forget(self) -> None:
+        """Efface la session mémorisée."""
+        self.set("remembered_username", "")
+        self.set("remembered_hash", "")

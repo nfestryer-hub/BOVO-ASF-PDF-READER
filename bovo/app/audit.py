@@ -1,4 +1,4 @@
-"""Historique des modifications (audit trail) de BOVO Planning Manager.
+"""Historique des modifications (audit trail) de Bovo ASF Manager.
 
 Enregistre pour chaque écriture métier :
 

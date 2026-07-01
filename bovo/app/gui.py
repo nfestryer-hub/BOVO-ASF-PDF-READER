@@ -1,4 +1,4 @@
-"""Interface graphique CustomTkinter de BOVO Planning Manager.
+"""Interface graphique CustomTkinter de Bovo ASF Manager.
 
 ⚠️ Ce module ne contient AUCUNE logique métier : il se contente d'appeler les
 services (``Planner``, ``Database``, ``Settings``, ``Exporter``) et d'afficher
@@ -70,15 +70,17 @@ class LoginDialog(ctk.CTkToplevel):
         auth: AuthService,
         on_success: Callable[[], None],
         on_cancel: Callable[[], None],
+        settings: Settings | None = None,
     ) -> None:
         super().__init__(master)
         self._auth = auth
+        self._settings = settings
         self._on_success = on_success
         self._on_cancel = on_cancel
         self._failed = 0
 
-        self.title("BOVO Planning Manager — Connexion")
-        self.geometry("440x520")
+        self.title("Bovo ASF Manager — Connexion")
+        self.geometry("440x560")
         self.resizable(False, False)
         self.configure(fg_color=SURFACE)
         self.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -127,7 +129,21 @@ class LoginDialog(ctk.CTkToplevel):
             body, text="Afficher le mot de passe", variable=self._show_pwd,
             command=self._toggle_password, fg_color=ACCENT,
             hover_color=ACCENT_HOVER, checkbox_height=18, checkbox_width=18,
+        ).pack(anchor="w", pady=(0, 6))
+
+        self._remember_me = ctk.BooleanVar(
+            value=bool(self._settings and self._settings.remembered_username)
+        )
+        ctk.CTkCheckBox(
+            body, text="Se souvenir de moi sur cet appareil",
+            variable=self._remember_me, fg_color=ACCENT,
+            hover_color=ACCENT_HOVER, checkbox_height=18, checkbox_width=18,
         ).pack(anchor="w", pady=(0, 14))
+
+        # Pré-remplissage du username si mémorisé.
+        if self._settings and self._settings.remembered_username:
+            self._username_var.set(self._settings.remembered_username)
+            self.after(100, self._password_entry.focus_set)
 
         self._error_label = ctk.CTkLabel(
             body, text="", text_color=ACCENT,
@@ -184,6 +200,14 @@ class LoginDialog(ctk.CTkToplevel):
                 text=f"Identifiants incorrects. {remaining} tentative(s) restante(s)."
             )
             return
+        # Gestion « Se souvenir de moi ».
+        if self._settings is not None:
+            if self._remember_me.get():
+                row = self._auth._db.get_user_by_username(username)  # noqa: SLF001
+                if row is not None:
+                    self._settings.remember(username, row["password_hash"])
+            else:
+                self._settings.forget()
         self._error_label.configure(text="")
         self.grab_release()
         self.destroy()
@@ -219,7 +243,7 @@ class SplashScreen(ctk.CTkToplevel):
             ).pack(pady=(80, 10))
 
         ctk.CTkLabel(
-            self, text="BOVO Planning Manager",
+            self, text="Bovo ASF Manager",
             font=ctk.CTkFont(size=22, weight="bold"),
         ).pack()
         ctk.CTkLabel(
@@ -743,13 +767,12 @@ class BovoApp(ctk.CTk):
         self._documents = DocumentService(database)
         self._calendar_model = CalendarModel()
         self._progress_queue: queue.Queue[tuple] = queue.Queue()
-        self._map_widget: Any = None  # créé à la demande (tkintermapview)
 
         today = date.today()
         self._cal_year = today.year
         self._cal_month = today.month
 
-        self.title("BOVO Planning Manager")
+        self.title("Bovo ASF Manager")
         width, height = settings.window_size
         self.geometry(f"{width}x{height}")
         self.minsize(1100, 720)
@@ -822,47 +845,62 @@ class BovoApp(ctk.CTk):
             image = ctk.CTkImage(Image.open(logo_path), size=(150, 150))
             ctk.CTkLabel(sidebar, image=image, text="").pack(pady=(24, 4))
         ctk.CTkLabel(
-            sidebar, text="Planning Manager",
+            sidebar, text="ASF Manager",
             font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(pady=(0, 20))
+        ).pack(pady=(0, 12))
+
+        # ------------------------------------------------------------------ #
+        # Pied fixe : version + utilisateur + déconnexion (packés d'abord
+        # pour être TOUJOURS visibles, même avec beaucoup d'onglets).
+        # ------------------------------------------------------------------ #
+        ctk.CTkLabel(
+            sidebar, text=f"v{__version__} · {__author__}",
+            font=ctk.CTkFont(size=10), text_color="#7A7A80",
+        ).pack(side="bottom", pady=(4, 10))
+
+        if self._auth is not None and self._auth.current_user is not None:
+            user = self._auth.current_user
+            user_box = ctk.CTkFrame(sidebar, fg_color=SURFACE, corner_radius=10)
+            user_box.pack(side="bottom", fill="x", padx=10, pady=(6, 6))
+            ctk.CTkLabel(
+                user_box, text=f"👤  {user.username}",
+                font=ctk.CTkFont(size=12, weight="bold"), anchor="w",
+                wraplength=200, justify="left",
+            ).pack(fill="x", padx=10, pady=(8, 0))
+            ctk.CTkLabel(
+                user_box, text=user.role.value, text_color="#9A9AA0",
+                font=ctk.CTkFont(size=10), anchor="w",
+            ).pack(fill="x", padx=10, pady=(0, 4))
+            ctk.CTkButton(
+                user_box, text="⎋  Se déconnecter", height=34,
+                fg_color=ACCENT, text_color="white",
+                hover_color=ACCENT_HOVER,
+                font=ctk.CTkFont(size=11, weight="bold"),
+                command=self._logout,
+            ).pack(fill="x", padx=10, pady=(2, 10))
+
+        # ------------------------------------------------------------------ #
+        # Nav scrollable au centre (accepte n'importe quel nombre d'onglets)
+        # ------------------------------------------------------------------ #
+        nav_container = ctk.CTkScrollableFrame(
+            sidebar, fg_color="transparent",
+            scrollbar_button_color=CARD_BG,
+            scrollbar_button_hover_color=ACCENT,
+        )
+        nav_container.pack(side="top", fill="both", expand=True, padx=6, pady=(0, 4))
 
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
         nav_items = self._nav_items_for_role()
         for key, label in nav_items:
             btn = ctk.CTkButton(
-                sidebar, text=label, anchor="w", height=44,
+                nav_container, text=label, anchor="w", height=42,
                 fg_color="transparent", text_color=("black", "white"),
                 hover_color=ACCENT, corner_radius=8,
+                font=ctk.CTkFont(size=13),
                 command=lambda k=key: self._show_view(k),
             )
-            btn.pack(fill="x", padx=16, pady=4)
+            btn.pack(fill="x", padx=6, pady=3)
             self._nav_buttons[key] = btn
-
-        # Bandeau utilisateur en pied de sidebar
-        if self._auth is not None and self._auth.current_user is not None:
-            user = self._auth.current_user
-            user_box = ctk.CTkFrame(sidebar, fg_color="transparent")
-            user_box.pack(side="bottom", fill="x", padx=12, pady=(4, 6))
-            ctk.CTkLabel(
-                user_box, text=f"👤 {user.username}",
-                font=ctk.CTkFont(size=12, weight="bold"), anchor="w",
-            ).pack(fill="x")
-            ctk.CTkLabel(
-                user_box, text=user.role.value, text_color="#9A9AA0",
-                font=ctk.CTkFont(size=10), anchor="w",
-            ).pack(fill="x")
-            ctk.CTkButton(
-                user_box, text="Se déconnecter", height=28,
-                fg_color="transparent", border_width=1,
-                text_color=("black", "white"), hover_color=ACCENT,
-                font=ctk.CTkFont(size=11),
-                command=self._logout,
-            ).pack(fill="x", pady=(6, 0))
-
-        ctk.CTkLabel(
-            sidebar, text=f"v{__version__} · {__author__}",
-            font=ctk.CTkFont(size=11), text_color="#7A7A80",
-        ).pack(side="bottom", pady=(8, 12))
 
         self._content = ctk.CTkFrame(self, fg_color="transparent")
         self._content.grid(row=0, column=1, sticky="nsew", padx=24, pady=24)
@@ -883,7 +921,6 @@ class BovoApp(ctk.CTk):
             ]
         items += [
             ("inspections", "🧰  Inspections ASF"),
-            ("carte", "🗺️  Carte"),
             ("documents", "📎  Documents"),
         ]
         if self._can("view_planning"):
@@ -902,12 +939,18 @@ class BovoApp(ctk.CTk):
         """Déconnecte l'utilisateur et revient à l'écran de connexion."""
         if self._auth is None:
             return
+        # On efface aussi la session mémorisée (le user demande à repartir de zéro).
+        self._settings.forget()
         self._auth.logout()
         self.withdraw()
         for child in self.winfo_children():
             if not isinstance(child, ctk.CTkToplevel):
                 child.destroy()
-        LoginDialog(self, self._auth, on_success=self._relogin, on_cancel=self.on_close)
+        LoginDialog(
+            self, self._auth,
+            on_success=self._relogin, on_cancel=self.on_close,
+            settings=self._settings,
+        )
 
     def _relogin(self) -> None:
         """Callback après relogin : rebuild UI selon nouveau rôle."""
@@ -936,7 +979,6 @@ class BovoApp(ctk.CTk):
             "calendrier": self._view_calendrier,
             "interventions": self._view_interventions,
             "inspections": self._view_inspections,
-            "carte": self._view_carte,
             "documents": self._view_documents,
             "import": self._view_import,
             "historique": self._view_historique,
@@ -1599,74 +1641,6 @@ class BovoApp(ctk.CTk):
             f"• Interventions marquées « Terminée » : "
             f"{summary.get('interventions_liees', 0)}",
         )
-
-    # ------------------------------------------------------------------ #
-    # Vue : Carte interactive des interventions / rapports
-    # ------------------------------------------------------------------ #
-    def _view_carte(self) -> None:
-        """Affiche une carte OpenStreetMap avec les rapports géolocalisés."""
-        frame = ctk.CTkFrame(self._content, fg_color="transparent")
-        frame.grid(row=0, column=0, sticky="nsew")
-        frame.grid_columnconfigure(0, weight=1)
-        frame.grid_rowconfigure(1, weight=1)
-
-        header = ctk.CTkFrame(frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
-        ctk.CTkLabel(
-            header, text="Carte des inspections ASF",
-            font=ctk.CTkFont(size=24, weight="bold"),
-        ).pack(side="left")
-        self._map_count_label = ctk.CTkLabel(
-            header, text="", text_color="#9A9AA0",
-        )
-        self._map_count_label.pack(side="left", padx=16)
-
-        try:
-            import tkintermapview  # import local (dépendance lourde)
-        except ImportError:
-            ctk.CTkLabel(
-                frame,
-                text="⚠️  tkintermapview non installé. "
-                "Exécutez `pip install tkintermapview`.",
-                text_color=ACCENT,
-            ).grid(row=1, column=0, pady=40)
-            return
-
-        map_container = ctk.CTkFrame(frame, fg_color=CARD_BG, corner_radius=10)
-        map_container.grid(row=1, column=0, sticky="nsew")
-        map_container.grid_rowconfigure(0, weight=1)
-        map_container.grid_columnconfigure(0, weight=1)
-        self._map_widget = tkintermapview.TkinterMapView(
-            map_container, width=800, height=560, corner_radius=8,
-        )
-        self._map_widget.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
-        self._map_widget.set_position(43.6047, 1.4442)  # Toulouse par défaut
-        self._map_widget.set_zoom(8)
-
-        markers = self._collect_map_points()
-        for lat, lon, title, description in markers:
-            self._map_widget.set_marker(lat, lon, text=title, text_color="#E63946")
-        if markers:
-            self._map_widget.set_position(markers[0][0], markers[0][1])
-            self._map_widget.set_zoom(10)
-        self._map_count_label.configure(
-            text=f"{len(markers)} point(s) géolocalisé(s)"
-        )
-
-    def _collect_map_points(self) -> list[tuple[float, float, str, str]]:
-        """Extrait les coordonnées des rapports (latitude/longitude non vides)."""
-        points: list[tuple[float, float, str, str]] = []
-        for row in self._db.list_generic("rapports"):
-            lat_raw = (row.get("latitude") or "").strip().replace(",", ".")
-            lon_raw = (row.get("longitude") or "").strip().replace(",", ".")
-            try:
-                lat, lon = float(lat_raw), float(lon_raw)
-            except (TypeError, ValueError):
-                continue
-            title = row.get("identifiant") or f"Rapport #{row['id']}"
-            desc = f"{row.get('autoroute', '')} · {row.get('secteur', '')}"
-            points.append((lat, lon, title, desc))
-        return points
 
     # ------------------------------------------------------------------ #
     # Vue : Gestion documentaire

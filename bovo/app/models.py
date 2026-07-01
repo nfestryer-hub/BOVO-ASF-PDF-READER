@@ -1,4 +1,4 @@
-"""Modèles de données de BOVO Planning Manager.
+"""Modèles de données de Bovo ASF Manager.
 
 Définit les entités métier sous forme de :mod:`dataclasses` entièrement typées
 ainsi que les énumérations associées. Chaque modèle propose des helpers de

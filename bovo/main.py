@@ -1,4 +1,4 @@
-"""Point d'entrée de BOVO Planning Manager.
+"""Point d'entrée de Bovo ASF Manager.
 
 Séquence de démarrage :
 
@@ -41,7 +41,7 @@ def main() -> int:
     """Initialise et exécute l'application. Retourne un code de sortie."""
     ensure_directories(DATABASE_DIR, ASSETS_DIR, LOGS_DIR, EXPORT_DIR)
     logger = configure_logging(LOGS_DIR, level=logging.INFO)
-    logger.info("Démarrage de BOVO Planning Manager.")
+    logger.info("Démarrage de Bovo ASF Manager.")
 
     database = Database(DATABASE_DIR / "bovo.db")
     settings = Settings(database)
@@ -64,7 +64,20 @@ def main() -> int:
 
     def _show_login() -> None:
         """Ouvre la fenêtre de connexion (bloquante)."""
-        LoginDialog(app, auth, on_success=_after_login, on_cancel=app.on_close)
+        # Auto-login si l'utilisateur a coché « Se souvenir de moi » précédemment.
+        if settings.remembered_username and settings.remembered_hash:
+            user = auth.try_auto_login(
+                settings.remembered_username, settings.remembered_hash
+            )
+            if user is not None:
+                _after_login()
+                return
+            # Session obsolète : purge silencieuse.
+            settings.forget()
+        LoginDialog(
+            app, auth, on_success=_after_login, on_cancel=app.on_close,
+            settings=settings,
+        )
 
     SplashScreen(app, on_finish=_show_login)
 

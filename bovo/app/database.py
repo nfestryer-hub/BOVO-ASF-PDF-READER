@@ -1,4 +1,4 @@
-"""Couche de persistance SQLite de BOVO Planning Manager.
+"""Couche de persistance SQLite de Bovo ASF Manager.
 
 Encapsule toute la logique d'accès à la base ``database/bovo.db`` :
 création des tables (``interventions``, ``pdf_files``, ``logs``, ``settings``),

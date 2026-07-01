@@ -1,4 +1,4 @@
-"""Système de journalisation centralisé de BOVO Planning Manager.
+"""Système de journalisation centralisé de Bovo ASF Manager.
 
 Ce module fournit :
     * un logger applicatif configuré (console + fichier rotatif léger) ;
