@@ -64,32 +64,49 @@ GUI sans logique métier ; logique répartie dans les modules.
 - **Icône de fenêtre** BOVO appliquée (barre de tâches Windows/Linux/macOS).
 - 31 tests pytest OK (16 nouveaux) ; Ruff 0 erreur ; smoke GUI Xvfb OK.
 
-### Itération 4 — Backlog P2 : Auth, Audit, Carte, Documents (2026-07-01)
-- **Auth locale bcrypt** (coût 12) : 3 comptes seedés idempotents
-  (Admin/Planificateur/Consultant). Écran de connexion animé au démarrage,
-  session mémoire, verrouillage après 5 échecs.
-- **Rôles & permissions** : le Consultant n'a pas accès au Planning
-  (Calendrier / Interventions / Importer PDF) ; boutons Ajouter/Supprimer
-  masqués pour lui ; Admin seul voit « Utilisateurs ».
-- **Historique des modifications** (audit trail) : table `audit_log` avec
-  before/after JSON par entité (intervention, inspections, rapports, incidents,
-  materiel, document). Vue Historique avec filtre par entité + recherche.
-  `AuditEntry.diff()` filtre les champs meta (id, created_at, updated_at).
-- **Carte interactive** OpenStreetMap via `tkintermapview` (offline tiles),
-  marqueurs bâtis depuis latitude/longitude des rapports. Centrée sur
-  Toulouse par défaut.
-- **Gestion documentaire** : attacher PDF/PNG/JPEG/DOCX/XLSX à une entité,
-  stockage local (`bovo/documents/<AAAA>/<uuid>.<ext>`) référencé en base.
-  Ouverture native + suppression.
-- **Écran Utilisateurs** (Admin) : création + changement de mot de passe +
-  suppression (sauf soi-même).
-- **Sync réseau** : reporté (option D non retenue par le client).
-- Bandeau utilisateur en pied de sidebar + bouton « Se déconnecter ».
-- 38 tests pytest OK (7 nouveaux — auth × 4, audit × 2, documents × 1) ;
-  Ruff 0 erreur ; smoke GUI Xvfb OK sur les 3 rôles.
+### Itération 5 — Bovo ASF Manager v1.1 : renommage + fixes UX + Backend serveur (2026-07-01)
 
-### Comptes seedés
-Voir `/app/memory/test_credentials.md`.
+**Phase A — UX (client desktop)**
+- Renommage global : « BOVO Planning Manager » → **Bovo ASF Manager** (v1.1.0)
+- Suppression de l'onglet Carte (les utilisateurs disposent déjà d'un logiciel GPS)
+- Sidebar refondue : `CTkScrollableFrame` pour la nav + bloc bas fixe (user + « ⎋ Se déconnecter » + version) → le bouton reste visible même chez l'Admin
+- Export PDF tableur en **A3 paysage** avec largeurs proportionnelles au contenu + wrapping automatique via `insert_textbox` (lisibilité maximale)
+- **« Se souvenir de moi »** au login : stocke `remembered_username` + `remembered_hash` (bcrypt) dans `settings`. Auto-login silencieux au prochain lancement (via `AuthService.try_auto_login`), avec purge automatique si le mot de passe a changé.
+
+**Phase B — Backend serveur multi-utilisateurs (`/app/bovo-server/`)**
+- **FastAPI** (Python 3.12) + **PostgreSQL 16** + **JWT** (PyJWT, HS256, access 8h + refresh 30j)
+- **Auth** : bcrypt (coût 12), seed idempotent Admin, brute force lock (5 échecs / 15 min via table `login_attempts`)
+- **RBAC** : dépendances `require_admin` / `require_editor` (Admin/Planificateur/Consultant)
+- **Endpoints REST** : `/api/auth/*`, `/api/users`, `/api/interventions`, `/api/modules/{sheet}` (inspections/rapports/incidents/materiel avec colonne JSONB), `/api/documents` (multipart + download), `/api/audit`, `/api/health`, `/api/events` (SSE)
+- **Synchronisation temps-réel via SSE** : `EventBroadcaster` avec `bind_loop` capturant la loop principale, `publish_sync` utilisant `run_coroutine_threadsafe` (compatible endpoints synchrones), keep-alive 20 s, subscribe / unsubscribe thread-safe
+- **Audit trail** : chaque écriture métier enregistre `username`, `role`, `action`, `entity`, `entity_id`, `before`, `after` (JSONB)
+- **docker-compose** : services `db` (Postgres) + `api` (Uvicorn) + `backup` (pg_dump quotidien, gzip, rétention 14 jours) + volumes persistants (`db-data`, `documents`, `backups`)
+- **Dockerfile** slim Python 3.12 + healthcheck curl
+- **Migration SQLite → PostgreSQL** : script `migrate_sqlite_to_postgres.py` idempotent (users / interventions / modules / documents / settings / audit)
+- **Documentation** : README complet avec setup VPS + nginx reverse-proxy (SSE-friendly) + rotation backups + restauration
+
+**Phase B — Client desktop : socle réseau**
+- `app/api_client.py` : `ApiClient` avec `requests.Session`, refresh 401 automatique, `Tokens`, `ApiError`, endpoints (auth/users/interventions/modules/documents/audit)
+- `app/sync.py` : `SseListener` (thread daemon, reconnexion exponentielle 2s → 60s, JSON parse, callback thread-safe)
+- Test E2E : client Python parle à API → login OK, création intervention → événement SSE reçu instantanément, refresh token OK, upload/download OK
+
+**Tests & qualité**
+- **41 tests pytest OK** (client desktop, Phase A + auto-login)
+- Backend testé via curl (health, login, brute force, RBAC 403, SSE stream, refresh, upload) + test E2E Python (SSE + REST)
+- **Ruff 0 erreur** sur client + serveur
+
+### Comptes seedés (serveur)
+- Admin : `Bovo` / `ibak23` (créé automatiquement au démarrage via `ADMIN_PASSWORD`)
+- Autres comptes : à créer via l'écran « Utilisateurs » ou `POST /api/users`
+
+### Backlog restant (P0)
+- Refactor complet du client desktop pour parler à l'API à la place de la SQLite (services `Planner` / `InspectionService` / `AuthService` locaux → services distants basés sur `ApiClient`)
+- Écran de configuration serveur (URL + test de connexion) au premier lancement
+- Bouton « Synchroniser maintenant » (refresh manuel) + indicateur d'état SSE dans la sidebar
+- PyInstaller `.exe` Windows avec URL du serveur bakée
+
+### Backlog résiduel (P1/P2)
+- Glisser-déposer PDF · impression plannings · sauvegardes auto programmées côté client · notifications toast temps-réel sur événements SSE
 
 ## Personas
 - Planificateur BOVO : importe les listings, suit le planning, exporte.
