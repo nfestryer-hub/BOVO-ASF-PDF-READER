@@ -1,0 +1,27 @@
+# Copiez ce fichier en `docker-compose.override.yml` pour personnaliser
+# certains volumes en fonction du poste (ex. dépôt des backups sur le NAS
+# via un lecteur réseau monté sur Windows). Docker Compose fusionnera
+# automatiquement cet override avec `docker-compose.yml`.
+#
+# Ce fichier ne doit PAS être commité en production (il est spécifique au
+# poste). Le nom `docker-compose.override.yml` est ignoré par git.
+
+services:
+
+  # Exemple 1 — Windows : rediriger les sauvegardes vers un NAS BOVO monté
+  # sur la lettre S: (S:\Sauvegardes\bovo).
+  backup:
+    volumes:
+      - "S:/Sauvegardes/bovo:/backups"
+
+  # Exemple 2 — Windows : rediriger le stockage des documents vers un
+  # dossier local partagé sur le NAS (utile pour recycler l'archivage
+  # d'entreprise existant).
+  # api:
+  #   volumes:
+  #     - "S:/Documents/bovo:/data/documents"
+
+  # Exemple 3 — Changer le port publié (par défaut 8000).
+  # api:
+  #   ports:
+  #     - "80:8000"        # Publier sur le port 80 (HTTP standard).

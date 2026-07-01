@@ -99,6 +99,43 @@ GUI sans logique métier ; logique répartie dans les modules.
 - Admin : `Bovo` / `ibak23` (créé automatiquement au démarrage via `ADMIN_PASSWORD`)
 - Autres comptes : à créer via l'écran « Utilisateurs » ou `POST /api/users`
 
+### Itération 5b — Déploiement Windows + portabilité VPS (2026-07-01)
+
+**Objectif** : déployer le backend FastAPI + PostgreSQL sur un PC Windows du
+réseau BOVO qui reste allumé, avec démarrage automatique au boot, tout en
+garantissant une migration ultérieure vers un VPS sans modification de code.
+
+**Livrables ajoutés dans `/app/bovo-server/`** :
+
+- **`DEPLOY_WINDOWS.md`** : guide de déploiement pas-à-pas — deux approches
+  (Docker Desktop recommandé + installation native NSSM) avec prérequis,
+  ouverture pare-feu, session dédiée `bovo-server`, IP statique.
+- **`windows/install-docker.ps1`** : script d'installation automatique pour
+  Docker Desktop. Installe Git + Docker Desktop via winget, génère un
+  `.env` sécurisé (JWT random 32 octets), ouvre le port 8000 dans le
+  pare-feu, lance la pile, vérifie `/api/health` (health-loop 60 s max).
+- **`windows/install-native.ps1`** : installation native sans Docker.
+  Installe Python 3.12 + PostgreSQL 16 (service Windows) + NSSM,
+  provisionne la base `bovo`, crée le venv, enregistre le service
+  `BovoASFManager` qui **démarre avant l'ouverture de session** (headless).
+- **`windows/backup.ps1`** : dump `pg_dump` gzip + archive documents,
+  rétention configurable, prêt pour le Planificateur de tâches Windows
+  (exemple `schtasks` fourni).
+- **`windows/status.ps1`** : diagnostic rapide (IP LAN, health API, état
+  services, dernières logs, espace disque).
+- **`windows/migrate-to-vps.ps1`** : génère une archive zip complète
+  (code + `.env` + dump SQL + documents) prête à téléverser sur un VPS
+  Linux. Aucune modification de code — même `docker compose up -d` sur
+  Linux, restauration `psql <dump.sql`.
+- **`docker-compose.override.yml.example`** : template pour rediriger
+  volumes (backups vers NAS, port 80, etc.) sans toucher au compose
+  principal.
+
+**Validation**
+- Syntaxe PowerShell 5 scripts validée via `pwsh 7.6.3` (`[Parser]::ParseFile`)
+- Backend démarre sans erreur avec vars d'env minimales
+- 41 tests pytest client + 0 erreur Ruff sur toute la codebase
+
 ### Backlog restant (P0)
 - Refactor complet du client desktop pour parler à l'API à la place de la SQLite (services `Planner` / `InspectionService` / `AuthService` locaux → services distants basés sur `ApiClient`)
 - Écran de configuration serveur (URL + test de connexion) au premier lancement

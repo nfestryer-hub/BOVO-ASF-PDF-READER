@@ -24,6 +24,13 @@ la base de données**.
 - **bcrypt** (coût 12) : hachage des mots de passe
 - **docker-compose** : orchestration API + base + sauvegardes
 
+> 💡 **Pour un déploiement sur un PC Windows interne (poste BOVO qui reste
+> allumé)** : consultez le guide dédié [DEPLOY_WINDOWS.md](DEPLOY_WINDOWS.md)
+> et les scripts PowerShell d'installation automatique dans le dossier
+> [`windows/`](windows/). L'app est portable : les mêmes fichiers
+> fonctionneront ensuite tels quels sur un VPS Linux (script de migration
+> `migrate-to-vps.ps1` fourni).
+
 ## Déploiement sur un VPS
 
 Prérequis :
