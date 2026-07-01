@@ -28,15 +28,18 @@ class RemoteUser:
     username: str
     role: str
     full_name: str = ""
+    last_login: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> RemoteUser:
         """Construit un utilisateur à partir du JSON renvoyé par l'API."""
+        last = data.get("last_login") or ""
         return cls(
             id=data.get("id"),
             username=data.get("username", ""),
             role=data.get("role", "Consultant"),
             full_name=data.get("full_name", ""),
+            last_login=str(last) if last else "",
         )
 
 

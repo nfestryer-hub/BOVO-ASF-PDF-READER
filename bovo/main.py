@@ -69,7 +69,7 @@ def main() -> int:
     audit = RemoteAuditService(client)
     sse_listener: SseListener | None = None
 
-    app = BovoApp(database, settings, auth=auth, audit=audit)
+    app = BovoApp(database, settings, auth=auth, audit=audit, client=client)
     app.protocol("WM_DELETE_WINDOW", lambda: _shutdown(app, sse_listener, database))
 
     def _after_login() -> None:

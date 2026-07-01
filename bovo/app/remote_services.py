@@ -190,15 +190,25 @@ class RemoteAuthService:
 # --------------------------------------------------------------------- #
 @dataclass
 class ImportResult:
-    """Compat structure retournée par ``import_pdfs`` (miroir de Planner)."""
+    """Mirror complet de :class:`app.planner.ImportResult` (compat GUI)."""
 
-    created: int = 0
-    updated: int = 0
-    errors: list[tuple[Path, str]] = field(default_factory=list)
+    files_processed: int = 0
+    interventions_created: int = 0
+    interventions_updated: int = 0
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def total_interventions(self) -> int:
+        return self.interventions_created + self.interventions_updated
 
 
 def _intervention_from_api(data: dict[str, Any]) -> Intervention:
-    """Convertit un JSON API en :class:`Intervention` locale."""
+    """Convertit un JSON API en :class:`Intervention` locale.
+
+    Les dates absentes sont conservées à ``None`` (contrairement à un
+    ``date.today()`` implicite qui masquerait le fait que l'intervention
+    n'est pas encore planifiée).
+    """
     return Intervention(
         id=data.get("id"),
         ouvrage=data.get("ouvrage", ""),
@@ -208,12 +218,14 @@ def _intervention_from_api(data: dict[str, Any]) -> Intervention:
         pr_debut=data.get("pr_debut", ""),
         pr_fin=data.get("pr_fin", ""),
         sens=data.get("sens", ""),
+        longueur=data.get("longueur", ""),
+        diametre=data.get("diametre", ""),
         type_ouvrage=data.get("type_ouvrage", ""),
-        date_debut=parse_iso_date(data.get("date_debut") or "") or date.today(),
-        date_fin=parse_iso_date(data.get("date_fin") or "") or date.today(),
+        date_debut=parse_iso_date(data.get("date_debut") or ""),
+        date_fin=parse_iso_date(data.get("date_fin") or ""),
         statut=StatutIntervention.from_value(data.get("statut", "À planifier")),
         pdf_path=data.get("pdf_path", ""),
-        observations=data.get("observations", ""),
+        commentaire=data.get("commentaire", ""),
     )
 
 
@@ -232,58 +244,103 @@ class RemotePlanner:
         return [_intervention_from_api(r) for r in rows]
 
     def search(
-        self, *, autoroute: str = "", statut: str = "", ouvrage: str = "",
-        query: str = "", **_: Any,
+        self, *, search: str = "", statut: str = "", autoroute: str = "",
+        secteur: str = "", ouvrage: str = "", query: str = "", **_: Any,
     ) -> list[Intervention]:
-        """Recherche filtrée d'interventions (compat Planner.search)."""
-        api_filters: dict[str, str] = {}
-        if autoroute and autoroute != "Toutes":
-            api_filters["autoroute"] = autoroute
-        if statut and statut != "Tous":
-            api_filters["statut"] = statut
-        if query or ouvrage:
-            api_filters["search"] = query or ouvrage
-        return self._fetch_all(**api_filters)
+        """Recherche filtrée d'interventions (compat Planner.search).
 
-    def get_statistics(self) -> dict[str, int]:
-        """Statistiques agrégées côté client à partir de la liste complète."""
+        Accepte les mêmes kwargs que ``Planner.search`` (``search``,
+        ``statut``, ``autoroute``, ``secteur``) + alias legacy ``query`` /
+        ``ouvrage`` pour rétro-compatibilité.
+        """
+        api_filters: dict[str, str] = {}
+        if autoroute and autoroute not in ("Toutes", ""):
+            api_filters["autoroute"] = autoroute
+        if statut and statut not in ("Tous", ""):
+            api_filters["statut"] = statut
+        needle = search or query or ouvrage
+        if needle:
+            api_filters["search"] = needle
+        results = self._fetch_all(**api_filters)
+        # Filtrage secteur côté client (le backend ne l'expose pas encore).
+        if secteur:
+            results = [iv for iv in results if iv.secteur == secteur]
+        return results
+
+    def get_statistics(self) -> dict[str, Any]:
+        """Statistiques agrégées côté client — clés identiques à Planner.
+
+        Retourne : ``total``, ``terminees``, ``a_faire``, ``pdfs``,
+        ``autoroutes``, ``secteurs``, ``derniere_maj``, ``db_ok``.
+        """
         interventions = self._fetch_all()
-        stats = {"total": len(interventions), "avec_pdf": 0,
-                 "terminees": 0, "autoroutes": 0, "secteurs": 0}
         seen_autoroutes: set[str] = set()
         seen_secteurs: set[str] = set()
+        seen_pdfs: set[str] = set()
+        terminees = 0
+        a_faire = 0
+        derniere_maj = ""
         for iv in interventions:
             if iv.pdf_path:
-                stats["avec_pdf"] += 1
+                seen_pdfs.add(iv.pdf_path)
             if iv.statut is StatutIntervention.TERMINEE:
-                stats["terminees"] += 1
+                terminees += 1
+            else:
+                a_faire += 1
             if iv.autoroute:
                 seen_autoroutes.add(iv.autoroute)
             if iv.secteur:
                 seen_secteurs.add(iv.secteur)
-        stats["autoroutes"] = len(seen_autoroutes)
-        stats["secteurs"] = len(seen_secteurs)
-        return stats
-
-    def filter_options(self) -> dict[str, list[str]]:
-        """Retourne autoroutes / secteurs / statuts existants pour les filtres."""
-        interventions = self._fetch_all()
-        autoroutes = sorted({iv.autoroute for iv in interventions if iv.autoroute})
-        statuts = [s.value for s in StatutIntervention]
+            if iv.updated_at and iv.updated_at > derniere_maj:
+                derniere_maj = iv.updated_at
         return {
-            "autoroute": ["Toutes"] + autoroutes,
-            "statut": ["Tous"] + statuts,
+            "total": len(interventions),
+            "terminees": terminees,
+            "a_faire": a_faire,
+            "pdfs": len(seen_pdfs),
+            "autoroutes": len(seen_autoroutes),
+            "secteurs": len(seen_secteurs),
+            "derniere_maj": derniere_maj or "—",
+            "db_ok": True,
         }
 
-    def build_calendar(self, year: int, month: int) -> list[list[Any]]:
-        """Construit le mois calendaire (délégué au CalendarModel)."""
+    def filter_options(self) -> dict[str, list[str]]:
+        """Retourne autoroutes / secteurs / statuts (clés identiques Planner)."""
         interventions = self._fetch_all()
-        return self._calendar.build(year, month, interventions)
+        return {
+            "autoroutes": sorted({iv.autoroute for iv in interventions if iv.autoroute}),
+            "secteurs": sorted({iv.secteur for iv in interventions if iv.secteur}),
+            "statuts": [s.value for s in StatutIntervention],
+        }
 
-    def list_between(self, start: date, end: date) -> list[Intervention]:
-        """Renvoie les interventions dont ``date_debut`` tombe dans l'intervalle."""
+    def build_calendar(self, year: int, month: int) -> list[Any]:
+        """Construit la grille du calendrier pour un mois (mirror Planner)."""
         interventions = self._fetch_all()
-        return [iv for iv in interventions if start <= iv.date_debut <= end]
+        return self._calendar.build_month(year, month, interventions)
+
+    def list_between(self, start: str | date, end: str | date) -> list[Intervention]:
+        """Interventions actives sur une plage (ISO ou date).
+
+        Signature miroir de :meth:`Database.list_interventions_between` :
+        l'appelant passe deux dates ISO (``YYYY-MM-DD``) ou ``date``.
+        """
+        def _as_date(v: str | date) -> date | None:
+            if isinstance(v, date):
+                return v
+            return parse_iso_date(v)
+
+        start_d = _as_date(start)
+        end_d = _as_date(end)
+        if start_d is None or end_d is None:
+            return []
+        results: list[Intervention] = []
+        for iv in self._fetch_all():
+            if iv.date_debut is None:
+                continue
+            fin = iv.date_fin or iv.date_debut
+            if iv.date_debut <= end_d and fin >= start_d:
+                results.append(iv)
+        return results
 
     def get(self, intervention_id: int) -> Intervention | None:
         """Retourne une intervention par id."""
@@ -316,11 +373,14 @@ class RemotePlanner:
             "ouvrage": intervention.ouvrage, "objet": intervention.objet,
             "autoroute": intervention.autoroute, "secteur": intervention.secteur,
             "pr_debut": intervention.pr_debut, "pr_fin": intervention.pr_fin,
-            "sens": intervention.sens, "type_ouvrage": intervention.type_ouvrage,
+            "sens": intervention.sens,
+            "longueur": intervention.longueur, "diametre": intervention.diametre,
+            "type_ouvrage": intervention.type_ouvrage,
             "date_debut": intervention.date_debut.isoformat() if intervention.date_debut else "",
             "date_fin": intervention.date_fin.isoformat() if intervention.date_fin else "",
             "statut": intervention.statut.value,
-            "pdf_path": intervention.pdf_path, "observations": intervention.observations,
+            "pdf_path": intervention.pdf_path,
+            "commentaire": intervention.commentaire,
         }
         data = self._client.create_intervention(payload)
         return _intervention_from_api(data)
@@ -329,29 +389,77 @@ class RemotePlanner:
         self, paths: list[Path],
         progress: Any | None = None,
     ) -> ImportResult:
-        """Parse les PDF localement puis pousse chaque intervention via l'API."""
+        """Parse les PDF localement puis pousse chaque intervention via l'API.
+
+        Renvoie un :class:`ImportResult` (mirror de :class:`app.planner.ImportResult`)
+        avec ``files_processed`` / ``interventions_created`` / ``interventions_updated``
+        et ``errors: list[str]``.
+        """
         from app.pdf_parser import PdfParser  # import local (dép. lourde)
         parser = PdfParser()
         result = ImportResult()
+        # Pré-charge la liste des ouvrages connus pour distinguer create/update.
+        try:
+            existing_ouvrages = {iv.ouvrage for iv in self._fetch_all()}
+        except ApiError:
+            existing_ouvrages = set()
         for idx, path in enumerate(paths, start=1):
             if progress is not None:
                 try:
-                    progress(idx, len(paths), path.name)
+                    progress(idx, len(paths), f"Analyse de {path.name}")
                 except Exception:  # noqa: BLE001 - callback GUI non critique
                     pass
             try:
-                items = parser.parse(path)
+                items = parser.parse_file(path)
             except Exception as exc:  # noqa: BLE001 — surface le message.
-                result.errors.append((path, str(exc)))
+                result.errors.append(f"Échec import {path.name} : {exc}")
                 continue
-            for iv in items:
-                iv.pdf_path = str(path)
+            result.files_processed += 1
+            for parsed in items:
+                iv = _parsed_to_intervention(parsed, path)
+                is_update = iv.ouvrage in existing_ouvrages
                 try:
                     self.upsert(iv)
-                    result.created += 1  # upsert compté comme création (compat)
+                    if is_update:
+                        result.interventions_updated += 1
+                    else:
+                        result.interventions_created += 1
+                        existing_ouvrages.add(iv.ouvrage)
                 except ApiError as exc:
-                    result.errors.append((path, exc.detail))
+                    result.errors.append(
+                        f"Échec import {path.name} : {exc.detail}",
+                    )
         return result
+
+
+def _parsed_to_intervention(parsed: Any, path: Path) -> Intervention:
+    """Convertit un :class:`ParsedIntervention` en :class:`Intervention`.
+
+    Mirror de :meth:`Planner._to_intervention` — évite l'import direct de
+    ``Planner`` (qui traînerait la dépendance SQLite).
+    """
+    statut = (
+        StatutIntervention.PLANIFIEE
+        if getattr(parsed, "dates", None)
+        else StatutIntervention.A_FAIRE
+    )
+    return Intervention(
+        ouvrage=parsed.ouvrage,
+        objet=parsed.objet,
+        autoroute=parsed.autoroute,
+        secteur=parsed.secteur,
+        pr_debut=parsed.pr_debut,
+        pr_fin=parsed.pr_fin,
+        sens=parsed.sens,
+        longueur=parsed.longueur,
+        diametre=parsed.diametre,
+        type_ouvrage=parsed.type_ouvrage,
+        date_debut=parsed.date_debut,
+        date_fin=parsed.date_fin,
+        statut=statut,
+        pdf_path=str(path),
+        commentaire=getattr(parsed, "observations", "") or "",
+    )
 
 
 # --------------------------------------------------------------------- #
@@ -377,6 +485,15 @@ class RemoteInspectionService:
 
     def __init__(self, client: ApiClient) -> None:
         self._client = client
+        # Référentiel des listes déroulantes — fetch lazy + cache local.
+        self._referentiel_cache: dict[str, list[str]] | None = None
+
+    def referentiel(self, ref_key: str) -> list[str]:
+        """Retourne la liste de référence associée à une clé (compat local)."""
+        if self._referentiel_cache is None:
+            from app.inspections import DEFAULT_REFERENTIEL  # noqa: PLC0415
+            self._referentiel_cache = dict(DEFAULT_REFERENTIEL)
+        return self._referentiel_cache.get(ref_key, [])
 
     # ------------------------------------------------------------------ #
     # Métadonnées (côté client — schémas partagés)
@@ -451,7 +568,12 @@ class RemoteInspectionService:
     # KPIs + Export PDF (agrégation client)
     # ------------------------------------------------------------------ #
     def kpis(self) -> dict[str, str]:
-        """KPIs ASF calculés à partir des inspections et rapports côté client."""
+        """KPIs ASF calculés à partir des inspections et rapports côté client.
+
+        Clés identiques à ``InspectionService.kpis()`` pour compat GUI :
+        ``ml_inspectes``, ``nb_inspections``, ``regards``, ``heures``,
+        ``ml_h``.
+        """
         rows = self.list_rows("inspections")
         ml_total = 0.0
         heures = 0.0
@@ -468,9 +590,10 @@ class RemoteInspectionService:
         regards = sum(1 for _ in rapports)
         return {
             "ml_inspectes": f"{ml_total:.0f}",
+            "nb_inspections": str(len(rows)),
             "regards": str(regards),
             "heures": f"{heures:.1f}",
-            "ml_par_heure": f"{(ml_total / heures) if heures else 0:.1f}",
+            "ml_h": f"{(ml_total / heures) if heures else 0:.1f}",
         }
 
     @staticmethod
@@ -504,6 +627,7 @@ class RemoteInspectionService:
         from app.inspections import InspectionService
 
         summary: dict[str, int] = {sheet: 0 for sheet in self.SHEETS}
+        summary["interventions_liees"] = 0  # mirror InspectionService (non utilisé côté REST)
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             tmp_path = Path(tmp.name)
         try:

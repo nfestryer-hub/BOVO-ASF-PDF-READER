@@ -73,12 +73,14 @@ class Intervention(Base):
     pr_debut: Mapped[str] = mapped_column(String(20), default="")
     pr_fin: Mapped[str] = mapped_column(String(20), default="")
     sens: Mapped[str] = mapped_column(String(30), default="")
+    longueur: Mapped[str] = mapped_column(String(30), default="")
+    diametre: Mapped[str] = mapped_column(String(30), default="")
     type_ouvrage: Mapped[str] = mapped_column(String(60), default="")
     date_debut: Mapped[str] = mapped_column(String(20), default="")
     date_fin: Mapped[str] = mapped_column(String(20), default="")
     statut: Mapped[str] = mapped_column(String(40), default="À planifier", nullable=False)
     pdf_path: Mapped[str] = mapped_column(String(400), default="")
-    observations: Mapped[str] = mapped_column(Text, default="")
+    commentaire: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )

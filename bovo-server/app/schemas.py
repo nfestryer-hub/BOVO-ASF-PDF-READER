@@ -97,12 +97,14 @@ class InterventionBase(BaseModel):
     pr_debut: str = ""
     pr_fin: str = ""
     sens: str = ""
+    longueur: str = ""
+    diametre: str = ""
     type_ouvrage: str = ""
     date_debut: str = ""
     date_fin: str = ""
     statut: str = "À planifier"
     pdf_path: str = ""
-    observations: str = ""
+    commentaire: str = ""
 
 
 class InterventionCreate(InterventionBase):
@@ -118,12 +120,14 @@ class InterventionUpdate(BaseModel):
     pr_debut: str | None = None
     pr_fin: str | None = None
     sens: str | None = None
+    longueur: str | None = None
+    diametre: str | None = None
     type_ouvrage: str | None = None
     date_debut: str | None = None
     date_fin: str | None = None
     statut: str | None = None
     pdf_path: str | None = None
-    observations: str | None = None
+    commentaire: str | None = None
 
 
 class InterventionOut(InterventionBase):

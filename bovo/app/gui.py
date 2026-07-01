@@ -29,12 +29,17 @@ from app.audit import AuditEntry, AuditService
 from app.auth import AuthService, Role, User
 from app.calendar import STATUT_COLORS, WEEKDAY_NAMES_FR, CalendarModel, DayCell
 from app.database import Database
-from app.documents import Document, DocumentService
+from app.documents import Document
 from app.exporter import Exporter
-from app.inspections import FieldSpec, InspectionService
+from app.inspections import FieldSpec
+from app.remote_services import (
+    ImportResult,
+    RemoteDocumentService,
+    RemoteInspectionService,
+    RemotePlanner,
+)
 from app.logger import LogAction, get_logger, log_action
 from app.models import Intervention, StatutIntervention
-from app.planner import ImportResult, Planner
 from app.settings import Settings
 from app.utils import (
     ASSETS_DIR,
@@ -567,7 +572,7 @@ class AttachDocumentDialog(ctk.CTkToplevel):
     def __init__(
         self,
         master: ctk.CTk,
-        service: DocumentService,
+        service: RemoteDocumentService,
         source: Path,
         uploaded_by: str,
         on_attached: Callable[[], None],
@@ -785,16 +790,30 @@ class BovoApp(ctk.CTk):
         settings: Settings,
         auth: AuthService | None = None,
         audit: AuditService | None = None,
+        client: Any | None = None,
     ) -> None:
         super().__init__()
         self._db = database
         self._settings = settings
         self._auth = auth
         self._audit = audit
-        self._planner = Planner(database, audit=audit)
-        self._exporter = Exporter(database)
-        self._inspections = InspectionService(database, audit=audit)
-        self._documents = DocumentService(database)
+        # --- Mode REST (client injecté) ------------------------------- #
+        # Depuis la migration REST du GUI, TOUTES les données métier
+        # (interventions, modules ASF, documents) transitent par le
+        # backend FastAPI. La DB SQLite locale ne sert plus qu'à trois
+        # choses : paramètres, journal local, cache offline temporaire.
+        if client is None and auth is not None:
+            client = getattr(auth, "_client", None)
+        if client is None:
+            raise RuntimeError(
+                "BovoApp requiert un ApiClient (mode REST). "
+                "Passe `client=` explicitement ou via un RemoteAuthService.",
+            )
+        self._client = client
+        self._planner = RemotePlanner(client)
+        self._exporter = Exporter(database=None)  # export local à partir des interventions fournies
+        self._inspections = RemoteInspectionService(client)
+        self._documents = RemoteDocumentService(client)
         self._calendar_model = CalendarModel()
         self._progress_queue: queue.Queue[tuple] = queue.Queue()
 
@@ -1251,7 +1270,7 @@ class BovoApp(ctk.CTk):
     def _open_day(self, day: date) -> None:
         """Ouvre la liste des interventions d'une journée."""
         iso = day.isoformat()
-        interventions = self._db.list_interventions_between(iso, iso)
+        interventions = self._planner.list_between(iso, iso)
         if len(interventions) == 1:
             self._open_detail(interventions[0])
             return
@@ -1846,9 +1865,20 @@ class BovoApp(ctk.CTk):
         self.wait_window(dialog)
 
     def _open_document(self, doc: Document) -> None:
-        """Ouvre le document dans l'application native."""
-        if not open_file_native(doc.path):
-            messagebox.showwarning("Document", "Fichier introuvable sur le disque.")
+        """Télécharge le document du serveur puis l'ouvre en application native."""
+        import tempfile
+        # En mode REST, le fichier vit sur le serveur : on télécharge dans
+        # un cache local temporaire avant l'ouverture native.
+        cache_dir = Path(tempfile.gettempdir()) / "bovo-docs"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        target = cache_dir / f"{doc.id}_{doc.filename}"
+        try:
+            self._documents.download(doc, target)
+        except Exception as exc:  # noqa: BLE001 — I/O ou API
+            messagebox.showwarning("Document", f"Téléchargement échoué : {exc}")
+            return
+        if not open_file_native(target):
+            messagebox.showwarning("Document", "Impossible d'ouvrir le fichier.")
 
     def _delete_document(self, doc: Document) -> None:
         """Supprime un document attaché (base + fichier)."""
