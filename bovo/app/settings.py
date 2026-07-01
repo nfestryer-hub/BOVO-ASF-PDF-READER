@@ -26,8 +26,10 @@ _DEFAULTS: dict[str, Any] = {
     "pdf_folder": str(PROJECT_ROOT / "sample"),
     "export_folder": str(EXPORT_DIR),
     "auto_save": True,
+    "server_url": "",
     "remembered_username": "",
-    "remembered_hash": "",
+    "remembered_refresh_token": "",
+    "remembered_hash": "",  # legacy — non utilisé, conservé pour compat.
 }
 
 
@@ -94,6 +96,19 @@ class Settings:
         return bool(self._cache["auto_save"])
 
     # ------------------------------------------------------------------ #
+    # Configuration serveur REST
+    # ------------------------------------------------------------------ #
+    @property
+    def server_url(self) -> str:
+        """URL du backend FastAPI (ex. ``http://192.168.1.42:8000``)."""
+        return str(self._cache.get("server_url") or "").rstrip("/")
+
+    @server_url.setter
+    def server_url(self, value: str) -> None:
+        """Persiste l'URL du serveur (sans slash final)."""
+        self.set("server_url", (value or "").strip().rstrip("/"))
+
+    # ------------------------------------------------------------------ #
     # « Se souvenir de moi » — session locale persistée
     # ------------------------------------------------------------------ #
     @property
@@ -102,16 +117,25 @@ class Settings:
         return str(self._cache.get("remembered_username") or "")
 
     @property
+    def remembered_refresh_token(self) -> str:
+        """Refresh token JWT persisté pour l'auto-login (ou chaîne vide)."""
+        return str(self._cache.get("remembered_refresh_token") or "")
+
+    @property
     def remembered_hash(self) -> str:
-        """Retourne le hash bcrypt du mot de passe mémorisé (ou vide)."""
+        """Legacy — hash bcrypt de l'ex-mode local (conservé pour purge)."""
         return str(self._cache.get("remembered_hash") or "")
 
-    def remember(self, username: str, password_hash: str) -> None:
+    def remember(self, username: str, refresh_token: str) -> None:
         """Persiste la session pour un auto-login au prochain lancement."""
         self.set("remembered_username", username)
-        self.set("remembered_hash", password_hash)
+        self.set("remembered_refresh_token", refresh_token)
+        # Purge du hash bcrypt legacy si présent.
+        if self._cache.get("remembered_hash"):
+            self.set("remembered_hash", "")
 
     def forget(self) -> None:
-        """Efface la session mémorisée."""
+        """Efface la session mémorisée (username + refresh token)."""
         self.set("remembered_username", "")
+        self.set("remembered_refresh_token", "")
         self.set("remembered_hash", "")

@@ -101,6 +101,40 @@ GUI sans logique métier ; logique répartie dans les modules.
 
 ### Itération 5b — Déploiement Windows + portabilité VPS (2026-07-01)
 
+### Itération 6 — Refactor client REST + icônes (2026-07-01)
+
+**Objectif** : remplacer l'authentification locale bcrypt par l'API FastAPI centralisée et supprimer toute dépendance SQLite pour l'authentification.
+
+**Livrables ajoutés côté client (`/app/bovo/`)** :
+
+- **`app/session.py`** — `Session` + `RemoteUser` : encapsule l'utilisateur connecté et expose les permissions (`can_edit`, `can_view_planning`, `can_manage_users`, `can_view_audit`).
+- **`app/remote_services.py`** — adaptateurs REST miroir des services locaux : `RemoteAuthService`, `RemotePlanner`, `RemoteInspectionService`, `RemoteDocumentService`, `RemoteAuditService`.
+- **`app/server_config_dialog.py`** — écran de configuration serveur au premier lancement (URL + bouton « Tester la connexion » via `/api/health`).
+- **`app/icons_generator.py`** — générateur PIL de 10 icônes PNG (maison, calendrier, loupe, outil, document, upload, horloge, users, journal, engrenage) en variantes rouge + blanche. Reproductible via `python -m app.icons_generator`.
+- **`assets/icons/*.png`** — 20 fichiers (10 icônes × 2 variantes).
+- **`main.py`** — réécrit : instance UNIQUE d'`ApiClient` partagée, `Session` en mémoire, `RemoteAuthService` drop-in, `SseListener` démarré après connexion, écran de config serveur si URL absente.
+
+**Points clés**
+- **Une seule instance** d'`ApiClient` créée au démarrage et partagée dans toute l'app.
+- Le `LoginDialog` appelle `client.login(username, password)` via `RemoteAuthService` (drop-in de `AuthService`).
+- « Se souvenir de moi » stocke désormais le **refresh token JWT** (au lieu du hash bcrypt legacy).
+- `SseListener` démarre après connexion et rafraîchit la vue active automatiquement quand un autre poste modifie une entité (mapping entité → vues affectées).
+- Aucun accès SQLite pour l'auth ; seuls le journal local, les settings et les paramètres restent en SQLite (fichier `bovo.db` par poste).
+- Compatibilité `RemoteUser.role` (str) et `Role` enum (`.value`) via helper `BovoApp._role_label`.
+
+**Validation**
+- 41 tests pytest OK (dont test refresh token migration)
+- Ruff 0 erreur sur `/app/bovo/` et `/app/bovo-server/`
+- E2E validé contre backend mock : login OK, login KO, auto-login refresh, refresh invalide → tous les cas testés
+- GUI complète rendue (10 nav items + 10 icônes chargées) après auth REST
+- Handler SSE `_on_remote_event` testé sans crash
+
+**Backlog restant P0**
+- Refactor complet des vues GUI pour utiliser `RemoteServices` (actuellement `BovoApp` instancie encore Planner/InspectionService/DocumentService locaux — le login via API fonctionne, mais les données métier passent encore par SQLite)
+- Écran Paramètres : bouton « Modifier URL serveur » qui ouvre `ServerConfigDialog`
+- Indicateur d'état SSE dans la sidebar (🟢/🔴)
+- Packaging PyInstaller `.exe` Windows
+
 **Objectif** : déployer le backend FastAPI + PostgreSQL sur un PC Windows du
 réseau BOVO qui reste allumé, avec démarrage automatique au boot, tout en
 garantissant une migration ultérieure vers un VPS sans modification de code.

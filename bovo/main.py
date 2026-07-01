@@ -1,13 +1,18 @@
-"""Point d'entrée de Bovo ASF Manager.
+"""Point d'entrée de Bovo ASF Manager (mode client / serveur REST).
 
 Séquence de démarrage :
 
-1. Splash animé (logo BOVO + « Développé par HENRI Dylan »).
-2. Écran de connexion (compte utilisateur local, bcrypt).
-3. Ouverture de la fenêtre principale avec droits filtrés selon le rôle.
+1. Splash animé (logo BOVO).
+2. **Configuration serveur** (si absente) → :class:`ServerConfigDialog`.
+3. **Auto-login silencieux** via le refresh token JWT persisté, si présent.
+4. Sinon :class:`LoginDialog` qui appelle ``client.login()``.
+5. Démarrage du listener SSE en arrière-plan pour les mises à jour temps-réel.
+6. Ouverture de la fenêtre principale filtrée selon le rôle utilisateur.
 
-Configure la journalisation, initialise la base SQLite, seed les utilisateurs
-par défaut, garantit une fermeture propre.
+L'authentification est **exclusivement** effectuée via le backend FastAPI
+(``POST /api/auth/login``). Aucune donnée d'authentification n'est stockée
+en local. Seuls les préférences (thème, URL serveur, refresh token pour
+l'auto-login) restent dans SQLite locale.
 
 Exécution::
 
@@ -22,12 +27,15 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-from app.audit import AuditService
-from app.auth import AuthService
+from app.api_client import ApiClient, ApiError
 from app.database import Database
 from app.gui import BovoApp, LoginDialog, SplashScreen
 from app.logger import LogAction, configure_logging, log_action
+from app.remote_services import RemoteAuditService, RemoteAuthService
+from app.server_config_dialog import ServerConfigDialog
+from app.session import Session
 from app.settings import Settings
+from app.sync import SseListener
 from app.utils import (
     ASSETS_DIR,
     DATABASE_DIR,
@@ -41,52 +49,112 @@ def main() -> int:
     """Initialise et exécute l'application. Retourne un code de sortie."""
     ensure_directories(DATABASE_DIR, ASSETS_DIR, LOGS_DIR, EXPORT_DIR)
     logger = configure_logging(LOGS_DIR, level=logging.INFO)
-    logger.info("Démarrage de Bovo ASF Manager.")
+    logger.info("Démarrage de Bovo ASF Manager (client REST).")
 
+    # SQLite locale : SEULEMENT pour les préférences (Settings) et le journal
+    # d'activité local (ouverture PDF, exports). Aucune donnée métier.
     database = Database(DATABASE_DIR / "bovo.db")
     settings = Settings(database)
-    auth = AuthService(database)
-    audit = AuditService(database)
     log_action(database, LogAction.OPEN, "Ouverture de l'application.")
 
     ctk.set_appearance_mode(settings.theme)
     ctk.set_default_color_theme(settings.color_theme)
 
+    # ------------------------------------------------------------------ #
+    # Instance UNIQUE d'ApiClient partagée par toute l'application.
+    # ------------------------------------------------------------------ #
+    client = ApiClient(base_url=settings.server_url or "http://localhost:8000")
+    session = Session(client=client)
+    auth = RemoteAuthService(client, session)
+    audit = RemoteAuditService(client)
+    sse_listener: SseListener | None = None
+
     app = BovoApp(database, settings, auth=auth, audit=audit)
-    app.protocol("WM_DELETE_WINDOW", app.on_close)
+    app.protocol("WM_DELETE_WINDOW", lambda: _shutdown(app, sse_listener, database))
 
     def _after_login() -> None:
         """Callback exécuté quand la connexion est validée."""
+        nonlocal sse_listener
         current = auth.current_user
         if current is not None:
-            audit.bind_session(current.username, current.role.value)
+            audit.bind_session(current.username, current.role)
+            logger.info("Authentifié comme %s (%s).", current.username, current.role)
+        # Démarre le listener SSE pour la synchro temps-réel (Ctrl+F5 auto).
+        sse_listener = SseListener(client, _on_sync_event)
+        sse_listener.start()
         app.on_authenticated()
 
-    def _show_login() -> None:
-        """Ouvre la fenêtre de connexion (bloquante)."""
-        # Auto-login si l'utilisateur a coché « Se souvenir de moi » précédemment.
-        if settings.remembered_username and settings.remembered_hash:
-            user = auth.try_auto_login(
-                settings.remembered_username, settings.remembered_hash
-            )
+    def _on_sync_event(payload: dict) -> None:
+        """Callback invoqué par le thread SSE ; marshal vers Tk main."""
+        try:
+            app.after(0, app._on_remote_event, payload)  # noqa: SLF001
+        except Exception:  # noqa: BLE001 — GUI détruite après logout
+            pass
+
+    def _launch_login() -> None:
+        """Ouvre l'écran de connexion (ou tente un auto-login)."""
+        # 1. Tentative de reconnexion silencieuse via le refresh token JWT.
+        if settings.remembered_refresh_token:
+            user = auth.try_auto_login(settings.remembered_refresh_token)
             if user is not None:
                 _after_login()
                 return
-            # Session obsolète : purge silencieuse.
+            # Refresh token expiré → purge et retour au login manuel.
             settings.forget()
+        # 2. Écran de connexion classique.
         LoginDialog(
-            app, auth, on_success=_after_login, on_cancel=app.on_close,
+            app, auth,
+            on_success=_after_login,
+            on_cancel=lambda: _shutdown(app, sse_listener, database),
             settings=settings,
         )
 
-    SplashScreen(app, on_finish=_show_login)
+    def _show_server_config() -> None:
+        """Affiche la configuration serveur (obligatoire au 1er lancement)."""
+        def _after_config() -> None:
+            client._base_url = settings.server_url.rstrip("/")  # noqa: SLF001
+            _launch_login()
+
+        ServerConfigDialog(
+            app, settings,
+            on_success=_after_config,
+            on_cancel=lambda: _shutdown(app, sse_listener, database),
+        )
+
+    def _start_after_splash() -> None:
+        """Enchaîne : config serveur (si vide) → login."""
+        if not settings.server_url:
+            _show_server_config()
+        else:
+            _launch_login()
+
+    SplashScreen(app, on_finish=_start_after_splash)
 
     try:
         app.mainloop()
-    except KeyboardInterrupt:  # pragma: no cover - arrêt manuel.
+    except KeyboardInterrupt:  # pragma: no cover
         logger.info("Interruption clavier : fermeture.")
-        app.on_close()
+        _shutdown(app, sse_listener, database)
     return 0
+
+
+def _shutdown(
+    app: BovoApp, sse_listener: SseListener | None, database: Database,
+) -> None:
+    """Ferme proprement l'application (SSE + DB + fenêtre)."""
+    if sse_listener is not None:
+        try:
+            sse_listener.stop()
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        app.on_close()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        database.close()
+    except Exception:  # noqa: BLE001
+        pass
 
 
 if __name__ == "__main__":

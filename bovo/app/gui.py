@@ -200,12 +200,15 @@ class LoginDialog(ctk.CTkToplevel):
                 text=f"Identifiants incorrects. {remaining} tentative(s) restante(s)."
             )
             return
-        # Gestion « Se souvenir de moi ».
+        # Gestion « Se souvenir de moi » — stocke le refresh_token JWT.
         if self._settings is not None:
             if self._remember_me.get():
-                row = self._auth._db.get_user_by_username(username)  # noqa: SLF001
-                if row is not None:
-                    self._settings.remember(username, row["password_hash"])
+                refresh_token = ""
+                client = getattr(self._auth, "_client", None)
+                if client is not None:
+                    refresh_token = client.tokens.refresh_token
+                if refresh_token:
+                    self._settings.remember(username, refresh_token)
             else:
                 self._settings.forget()
         self._error_label.configure(text="")
@@ -809,6 +812,44 @@ class BovoApp(ctk.CTk):
             return self._auth.current_user.username
         return get_system_username()
 
+    @staticmethod
+    def _role_label(role: Any) -> str:
+        """Retourne l'étiquette d'un rôle (compat enum ``Role`` ou chaîne)."""
+        return getattr(role, "value", None) or str(role)
+
+    def _on_remote_event(self, payload: dict[str, Any]) -> None:
+        """Callback invoqué par le listener SSE (déjà marshalé vers Tk main).
+
+        Rafraîchit la vue courante quand une entité de son domaine est
+        modifiée par un autre poste. Best-effort — ne crashe jamais.
+        """
+        entity = str(payload.get("entity", ""))
+        try:
+            active_key = next(
+                (k for k, btn in self._nav_buttons.items()
+                 if btn.cget("fg_color") == ACCENT),
+                None,
+            )
+        except Exception:  # noqa: BLE001 - GUI en cours de destruction
+            return
+        if not active_key:
+            return
+        # Table de correspondance entité → vue à recharger.
+        mapping = {
+            "intervention": {"calendrier", "interventions", "accueil"},
+            "module.inspections": {"inspections", "accueil"},
+            "module.rapports": {"inspections"},
+            "module.incidents": {"inspections"},
+            "module.materiel": {"inspections"},
+            "document": {"documents"},
+            "user": {"utilisateurs"},
+        }
+        if active_key in mapping.get(entity, set()):
+            try:
+                self._show_view(active_key)
+            except Exception:  # noqa: BLE001
+                pass
+
     def _apply_window_icon(self) -> None:
         """Applique le logo BOVO comme icône de fenêtre (barre de tâches).
 
@@ -868,7 +909,7 @@ class BovoApp(ctk.CTk):
                 wraplength=200, justify="left",
             ).pack(fill="x", padx=10, pady=(8, 0))
             ctk.CTkLabel(
-                user_box, text=user.role.value, text_color="#9A9AA0",
+                user_box, text=self._role_label(user.role), text_color="#9A9AA0",
                 font=ctk.CTkFont(size=10), anchor="w",
             ).pack(fill="x", padx=10, pady=(0, 4))
             ctk.CTkButton(
@@ -973,7 +1014,7 @@ class BovoApp(ctk.CTk):
         """Callback après relogin : rebuild UI selon nouveau rôle."""
         current = self._auth.current_user if self._auth else None
         if self._audit is not None and current is not None:
-            self._audit.bind_session(current.username, current.role.value)
+            self._audit.bind_session(current.username, self._role_label(current.role))
         self.on_authenticated()
 
     def _clear_content(self) -> None:
@@ -1953,7 +1994,7 @@ class BovoApp(ctk.CTk):
         last = user.last_login[:19].replace("T", " ") if user.last_login else "—"
         for value, w in [
             (user.username, 200), (user.full_name or "—", 220),
-            (user.role.value, 160), (last, 200),
+            (self._role_label(user.role), 160), (last, 200),
         ]:
             ctk.CTkLabel(
                 row, text=str(value)[:60], width=w, anchor="w",

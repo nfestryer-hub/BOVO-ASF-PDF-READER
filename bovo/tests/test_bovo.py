@@ -349,45 +349,33 @@ def test_documents_attach_list_delete(tmp_path: Path, db: Database) -> None:
 # « Se souvenir de moi » + auto-login
 # ---------------------------------------------------------------------- #
 def test_auth_auto_login_from_remembered_hash(db: Database) -> None:
-    from app.auth import AuthService
+    """L'auto-login local (mode legacy) est supprimé — le refresh token JWT
+    du backend REST est désormais utilisé à la place (voir Session côté
+    client). Ce test valide simplement que ``Settings.remember/forget``
+    n'ouvre plus aucune régression côté SQLite."""
     from app.settings import Settings
 
-    auth = AuthService(db)
     settings = Settings(db)
-
-    # Login manuel puis mémorisation.
-    user = auth.login("Bovo", "ibak23")
-    assert user is not None
-    row = db.get_user_by_username("Bovo")
-    assert row is not None
-    settings.remember("Bovo", row["password_hash"])
+    settings.remember("Bovo", "fake-refresh-token-xyz")
     assert settings.remembered_username == "Bovo"
-
-    # Nouvelle session : essai d'auto-login à partir du hash mémorisé.
-    auth2 = AuthService(db)
-    reconnected = auth2.try_auto_login(
-        settings.remembered_username, settings.remembered_hash,
-    )
-    assert reconnected is not None
-    assert reconnected.username == "Bovo"
-
-    # Un hash obsolète (mot de passe changé) doit refuser l'auto-login.
-    settings.remember("Bovo", "$2b$12$obsolete_hash_that_does_not_match")
-    auth3 = AuthService(db)
-    assert auth3.try_auto_login(
-        settings.remembered_username, settings.remembered_hash,
-    ) is None
+    assert settings.remembered_refresh_token == "fake-refresh-token-xyz"
+    # Le hash legacy est purgé automatiquement.
+    assert settings.remembered_hash == ""
+    settings.forget()
+    assert settings.remembered_username == ""
+    assert settings.remembered_refresh_token == ""
 
 
 def test_settings_forget_clears_remembered(db: Database) -> None:
     from app.settings import Settings
 
     settings = Settings(db)
-    settings.remember("Bovo", "$2b$12$abc")
+    settings.remember("Bovo", "refresh_token_xyz")
     assert settings.remembered_username == "Bovo"
+    assert settings.remembered_refresh_token == "refresh_token_xyz"
     settings.forget()
     assert settings.remembered_username == ""
-    assert settings.remembered_hash == ""
+    assert settings.remembered_refresh_token == ""
 
 
 # ---------------------------------------------------------------------- #
