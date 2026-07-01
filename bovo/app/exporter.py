@@ -125,3 +125,85 @@ class Exporter:
         document.close()
         log_action(self._db, LogAction.EXPORT, f"Export PDF : {destination.name}")
         return destination
+
+    def table_to_pdf(
+        self,
+        title: str,
+        headers: list[str],
+        rows: list[list[str]],
+        destination: Path,
+    ) -> Path:
+        """Exporte un tableau générique (mode tableur) au format PDF paysage.
+
+        Args:
+            title: Titre imprimé en haut de la première page.
+            headers: Libellés des colonnes.
+            rows: Contenu du tableau (chaque ligne = liste alignée aux headers).
+            destination: Chemin du PDF cible.
+
+        Returns:
+            Le chemin du PDF généré.
+        """
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        document = fitz.open()
+        page_width, page_height = 842.0, 595.0  # A4 paysage
+        margin_x, margin_y = 30.0, 40.0
+        header_h = 22.0
+        row_h = 18.0
+        usable_w = page_width - 2 * margin_x
+        n_cols = max(len(headers), 1)
+        col_w = usable_w / n_cols
+
+        def new_page() -> tuple[fitz.Page, float]:
+            page = document.new_page(width=page_width, height=page_height)
+            page.insert_text(
+                (margin_x, margin_y - 12),
+                f"{title} — {format_date_fr(date.today())}",
+                fontsize=13,
+            )
+            _draw_row(page, margin_y, headers, header_h, filled=True)
+            return page, margin_y + header_h
+
+        def _draw_row(
+            page: fitz.Page, y: float, cells: list[str], height: float, *, filled: bool
+        ) -> None:
+            for idx, value in enumerate(cells):
+                rect = fitz.Rect(
+                    margin_x + idx * col_w, y,
+                    margin_x + (idx + 1) * col_w, y + height,
+                )
+                if filled:
+                    page.draw_rect(rect, color=(0.1, 0.1, 0.1), fill=(0.9, 0.23, 0.27), width=0.5)
+                    color = (1.0, 1.0, 1.0)
+                else:
+                    page.draw_rect(rect, color=(0.6, 0.6, 0.6), width=0.4)
+                    color = (0.05, 0.05, 0.05)
+                text = (value or "").replace("\n", " ")
+                max_chars = max(int(col_w / 4.6), 6)
+                if len(text) > max_chars:
+                    text = text[: max_chars - 1] + "…"
+                page.insert_text(
+                    (rect.x0 + 4, rect.y0 + height - 6),
+                    text, fontsize=8, color=color,
+                )
+
+        page, y = new_page()
+        for row in rows:
+            if y + row_h > page_height - margin_y:
+                page, y = new_page()
+            padded = list(row) + [""] * max(0, n_cols - len(row))
+            _draw_row(page, y, padded[:n_cols], row_h, filled=False)
+            y += row_h
+
+        page.insert_text(
+            (margin_x, page_height - 15),
+            f"{len(rows)} ligne(s) — Développé par HENRI Dylan",
+            fontsize=8, color=(0.4, 0.4, 0.4),
+        )
+        document.save(str(destination))
+        document.close()
+        log_action(
+            self._db, LogAction.EXPORT,
+            f"Export PDF (tableur) : {destination.name} — {len(rows)} ligne(s)",
+        )
+        return destination

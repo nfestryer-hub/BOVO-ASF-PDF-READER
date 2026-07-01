@@ -132,3 +132,78 @@ def test_import_workbook_real(db: Database) -> None:
     assert summary["inspections"] == 8
     assert summary["rapports"] == 8
     assert svc.kpis()["regards"] == "56"
+
+
+@pytest.mark.parametrize(
+    ("depart", "arrivee", "expected"),
+    [
+        ("12+000", "12+345", "345"),
+        ("12.000", "12.345", "345"),
+        ("12,000", "12,345", "345"),
+        ("12", "13", "1000"),
+        ("12345", "13000", "655"),
+        ("PR 12+500", "PR 13+250", "750"),
+        ("", "12+500", ""),
+        ("abc", "def", ""),
+    ],
+)
+def test_compute_ml_inspectes(depart: str, arrivee: str, expected: str) -> None:
+    from app.utils import compute_ml_inspectes
+
+    assert compute_ml_inspectes(depart, arrivee) == expected
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        ("08:00", "16:00", "8"),
+        ("08:30", "17:15", "8.75"),
+        ("22:00", "02:00", "4"),  # passage minuit
+        ("8h", "10h30", "2.5"),
+        ("", "10:00", ""),
+        ("nope", "10:00", ""),
+    ],
+)
+def test_compute_heures_totales(start: str, end: str, expected: str) -> None:
+    from app.utils import compute_heures_totales
+
+    assert compute_heures_totales(start, end) == expected
+
+
+def test_prefill_rapport_from_latest_inspection(db: Database) -> None:
+    from app.inspections import InspectionService
+
+    svc = InspectionService(db)
+    assert svc.prefill_rapport() == {"prestataire": "BOVO & FILS"}
+    svc.save_row(
+        "inspections",
+        {
+            "n_inspection": "42", "date": "2026-07-20", "autoroute": "A62",
+            "secteur": "Garonne", "operateur": "Hugo D.",
+        },
+    )
+    prefill = svc.prefill_rapport()
+    assert prefill["date"] == "2026-07-20"
+    assert prefill["n_inspection"] == "42"
+    assert prefill["autoroute"] == "A62"
+    assert prefill["secteur"] == "Garonne"
+    assert prefill["inspecteur"] == "Hugo D."
+    assert prefill["prestataire"] == "BOVO & FILS"
+    # Champs manuels absents.
+    for col in ("identifiant", "photo", "description", "type_defaut"):
+        assert col not in prefill
+
+
+def test_export_pdf_module(tmp_path: Path, db: Database) -> None:
+    from app.inspections import InspectionService
+
+    svc = InspectionService(db)
+    svc.save_row(
+        "inspections",
+        {"n_inspection": "1", "date": "2026-07-15", "autoroute": "A62",
+         "secteur": "Garonne", "ml_inspectes": "300"},
+    )
+    destination = tmp_path / "export.pdf"
+    result = svc.export_pdf("inspections", destination)
+    assert result.exists()
+    assert result.stat().st_size > 500  # PDF non vide

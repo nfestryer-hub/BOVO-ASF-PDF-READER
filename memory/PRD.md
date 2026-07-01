@@ -48,6 +48,22 @@ GUI sans logique métier ; logique répartie dans les modules.
 - KPIs ASF au dashboard (ML inspectés 2518, regards 56, heures 38.2, ML/h 65.8).
 - 15 tests pytest OK ; Ruff/MyPy/Flake8 0 erreur ; smoke GUI Xvfb OK.
 
+### Itération 3 — Ergonomie Inspections & exports (2026-07-01)
+- Auto-calcul **ML Inspectés** dans le formulaire Inspection dès que
+  PK Départ & PK Arrivée sont saisis (formats `12+345`, `12.345`, `12,345`,
+  `12`, `12345`, préfixes `PR/PK`).
+- Auto-calcul **Heures Totales** dès que Heure Début & Heure Fin sont saisies
+  (`HH:MM`, `HHhMM`, `8h`, `8,5`) — gère le passage à minuit (22:00→02:00 = 4 h).
+- **Pré-remplissage du Rapport d'inspection** depuis la dernière inspection
+  ajoutée : date, N° Inspection, autoroute, secteur, inspecteur (=opérateur),
+  prestataire = « BOVO & FILS ». Photo/Description/Identifiant/etc. laissés
+  vides (à saisir).
+- **Export PDF tableur** (paysage A4) pour chaque module ASF via un bouton
+  « 📄 Export PDF » dans la barre d'outils (Inspections, Rapports, Incidents,
+  Matériel).
+- **Icône de fenêtre** BOVO appliquée (barre de tâches Windows/Linux/macOS).
+- 31 tests pytest OK (16 nouveaux) ; Ruff 0 erreur ; smoke GUI Xvfb OK.
+
 ## Personas
 - Planificateur BOVO : importe les listings, suit le planning, exporte.
 

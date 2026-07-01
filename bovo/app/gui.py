@@ -35,6 +35,8 @@ from app.planner import ImportResult, Planner
 from app.settings import Settings
 from app.utils import (
     ASSETS_DIR,
+    compute_heures_totales,
+    compute_ml_inspectes,
     format_date_fr,
     get_system_username,
     open_file_native,
@@ -229,8 +231,13 @@ class RowFormDialog(ctk.CTkToplevel):
         body.pack(fill="both", expand=True, padx=20, pady=10)
 
         existing = service.get_row(sheet, row_id) if row_id is not None else {}
+        if row_id is None and sheet == "rapports":
+            existing = service.prefill_rapport()
         for field in service.form_fields(sheet):
             self._build_field(body, field, (existing or {}).get(field.column, ""))
+
+        if sheet == "inspections":
+            self._wire_inspections_autocalc()
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.pack(fill="x", padx=20, pady=12)
@@ -278,6 +285,43 @@ class RowFormDialog(ctk.CTkToplevel):
                 line, textvariable=var, placeholder_text=placeholder,
             ).pack(side="left", fill="x", expand=True)
             self._widgets[field.column] = var
+
+    def _wire_inspections_autocalc(self) -> None:
+        """Branche les auto-calculs sur le formulaire d'inspection.
+
+        * ``ML Inspectés`` = |PK Arrivée − PK Départ| (en mètres)
+        * ``Heures Totales`` = Heure Fin − Heure Début (heures décimales)
+
+        Les valeurs saisies manuellement dans les champs calculés sont écrasées
+        dès qu'une entrée source est modifiée : la source fait autorité.
+        """
+        pk_debut = self._widgets.get("pk_depart")
+        pk_fin = self._widgets.get("pk_arrivee")
+        ml_var = self._widgets.get("ml_inspectes")
+        h_debut = self._widgets.get("heure_debut")
+        h_fin = self._widgets.get("heure_fin")
+        h_totales = self._widgets.get("heures_totales")
+
+        def refresh_ml(*_: object) -> None:
+            if ml_var is None or pk_debut is None or pk_fin is None:
+                return
+            result = compute_ml_inspectes(str(pk_debut.get()), str(pk_fin.get()))
+            if result:
+                ml_var.set(result)
+
+        def refresh_heures(*_: object) -> None:
+            if h_totales is None or h_debut is None or h_fin is None:
+                return
+            result = compute_heures_totales(str(h_debut.get()), str(h_fin.get()))
+            if result:
+                h_totales.set(result)
+
+        for var in (pk_debut, pk_fin):
+            if isinstance(var, ctk.StringVar):
+                var.trace_add("write", refresh_ml)
+        for var in (h_debut, h_fin):
+            if isinstance(var, ctk.StringVar):
+                var.trace_add("write", refresh_heures)
 
     def _collect(self) -> dict[str, str]:
         """Récupère les valeurs saisies, normalisées pour le stockage."""
@@ -339,10 +383,30 @@ class BovoApp(ctk.CTk):
         width, height = settings.window_size
         self.geometry(f"{width}x{height}")
         self.minsize(1100, 720)
+        self._apply_window_icon()
         self.withdraw()  # masquée tant que le splash s'affiche.
 
         self._build_layout()
         self._show_view("accueil")
+
+    def _apply_window_icon(self) -> None:
+        """Applique le logo BOVO comme icône de fenêtre (barre de tâches).
+
+        Utilise ``iconphoto`` (Tk) compatible Windows/Linux/macOS via PIL.
+        La référence à ``PhotoImage`` est conservée pour éviter la libération
+        par le ramasse-miettes (l'icône disparaîtrait alors sur Windows).
+        """
+        logo_path = ASSETS_DIR / "logo.png"
+        if not logo_path.exists():
+            return
+        try:
+            from PIL import ImageTk  # import local pour ne pas alourdir le module
+            image = Image.open(logo_path).convert("RGBA")
+            image.thumbnail((256, 256), Image.LANCZOS)
+            self._window_icon = ImageTk.PhotoImage(image)
+            self.iconphoto(True, self._window_icon)
+        except Exception as exc:  # noqa: BLE001 - icône best-effort.
+            logger.warning("Impossible de définir l'icône : %s", exc)
 
     # ------------------------------------------------------------------ #
     # Construction de l'ossature
@@ -935,6 +999,11 @@ class BovoApp(ctk.CTk):
             placeholder_text=f"Rechercher dans {self._inspections.sheet_label(sheet)}…",
         ).pack(side="left", fill="x", expand=True, padx=(4, 8))
         ctk.CTkButton(
+            toolbar, text="📄  Export PDF", width=130, fg_color="#457B9D",
+            hover_color="#35617D",
+            command=lambda sh=sheet: self._export_module_pdf(sh),
+        ).pack(side="right", padx=4)
+        ctk.CTkButton(
             toolbar, text="➕  Ajouter", width=120, fg_color=ACCENT,
             hover_color=ACCENT_HOVER,
             command=lambda sh=sheet: self._open_row_form(sh, None),
@@ -943,6 +1012,28 @@ class BovoApp(ctk.CTk):
         table = ctk.CTkScrollableFrame(parent, fg_color="transparent")
         table.grid(row=1, column=0, sticky="nsew")
         self._insp_tables[sheet] = table
+
+    def _export_module_pdf(self, sheet: str) -> None:
+        """Exporte un module ASF au format PDF tableur (paysage)."""
+        rows = self._inspections.list_rows(sheet)
+        if not rows:
+            messagebox.showinfo("Export", "Aucune donnée à exporter.")
+            return
+        label = self._inspections.sheet_label(sheet).replace(" ", "_").replace("'", "")
+        path = filedialog.asksaveasfilename(
+            title="Exporter en PDF (tableur)",
+            initialdir=str(self._settings.export_folder),
+            defaultextension=".pdf",
+            initialfile=f"bovo_{label.lower()}.pdf",
+            filetypes=[("Fichier PDF", "*.pdf")],
+        )
+        if not path:
+            return
+        try:
+            self._inspections.export_pdf(sheet, Path(path))
+            messagebox.showinfo("Export", f"Export réussi :\n{path}")
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Export", f"Échec de l'export : {exc}")
 
     def _refresh_module(self, sheet: str) -> None:
         """Recharge la table d'un module ASF selon la recherche."""

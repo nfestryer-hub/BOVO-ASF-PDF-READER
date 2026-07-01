@@ -119,3 +119,88 @@ def human_readable_size(num_bytes: int) -> str:
             return f"{size:.1f} {unit}"
         size /= 1024.0
     return f"{size:.1f} Po"
+
+
+def parse_pk_to_meters(value: str | None) -> float | None:
+    """Convertit une valeur de PK (Point Kilométrique) en mètres.
+
+    Formats reconnus :
+        * ``"12+345"`` → 12 345 m (km + m)
+        * ``"12,345"`` ou ``"12.345"`` → 12 345 m (km décimal)
+        * ``"12"`` (< 1000) → 12 000 m (km entier)
+        * ``"12345"`` (≥ 1000) → 12 345 m (déjà en mètres)
+        * préfixes ``PR`` / ``PK`` supportés
+
+    Returns:
+        Valeur en mètres, ou ``None`` si la valeur est illisible.
+    """
+    if value is None:
+        return None
+    raw = str(value).strip().upper().replace(" ", "")
+    if not raw:
+        return None
+    raw = re.sub(r"^(PR|PK)", "", raw)
+    if not raw:
+        return None
+    match = re.match(r"^(-?\d+)\+(\d{1,3})$", raw)
+    if match:
+        return int(match.group(1)) * 1000.0 + int(match.group(2))
+    try:
+        numeric = float(raw.replace(",", "."))
+    except ValueError:
+        return None
+    has_decimal = "." in raw or "," in raw
+    if has_decimal or abs(numeric) < 1000:
+        return numeric * 1000.0
+    return numeric
+
+
+def compute_ml_inspectes(pk_depart: str | None, pk_arrivee: str | None) -> str:
+    """Calcule le linéaire (ML) entre deux PK. Retourne une chaîne d'entier.
+
+    Retourne une chaîne vide si l'une des deux valeurs est illisible.
+    """
+    a = parse_pk_to_meters(pk_depart)
+    b = parse_pk_to_meters(pk_arrivee)
+    if a is None or b is None:
+        return ""
+    return f"{abs(b - a):.0f}"
+
+
+def parse_time_to_hours(value: str | None) -> float | None:
+    """Convertit une heure (``HH:MM``, ``HHhMM``, ``8h``, ``8,5``) en heures décimales.
+
+    Returns:
+        Heures depuis minuit (float), ou ``None`` si illisible.
+    """
+    if value is None:
+        return None
+    raw = str(value).strip().lower().replace(" ", "")
+    if not raw:
+        return None
+    match = re.match(r"^(\d{1,2})[h:](\d{1,2})$", raw)
+    if match:
+        hours, minutes = int(match.group(1)), int(match.group(2))
+        return hours + minutes / 60.0
+    match = re.match(r"^(\d{1,2})h$", raw)
+    if match:
+        return float(match.group(1))
+    try:
+        return float(raw.replace(",", "."))
+    except ValueError:
+        return None
+
+
+def compute_heures_totales(heure_debut: str | None, heure_fin: str | None) -> str:
+    """Calcule la durée entre deux heures. Gère le passage à minuit.
+
+    Retourne une chaîne au format ``X.Y`` (1 décimale) ou vide si illisible.
+    """
+    start = parse_time_to_hours(heure_debut)
+    end = parse_time_to_hours(heure_fin)
+    if start is None or end is None:
+        return ""
+    delta = end - start
+    if delta < 0:
+        delta += 24.0
+    return f"{delta:.2f}".rstrip("0").rstrip(".") or "0"

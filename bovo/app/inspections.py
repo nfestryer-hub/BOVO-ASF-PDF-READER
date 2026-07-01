@@ -342,6 +342,48 @@ class InspectionService:
         return count
 
     # ------------------------------------------------------------------ #
+    # Pré-remplissage du rapport à partir de la dernière inspection
+    # ------------------------------------------------------------------ #
+    #: Correspondance ``colonne_rapport → colonne_inspection`` reprise
+    #: automatiquement quand on crée un nouveau rapport d'inspection.
+    RAPPORT_PREFILL_MAP: dict[str, str] = {
+        "date": "date",
+        "n_inspection": "n_inspection",
+        "autoroute": "autoroute",
+        "secteur": "secteur",
+        "inspecteur": "operateur",
+    }
+
+    #: Colonnes du rapport laissées vides volontairement (à saisir).
+    RAPPORT_REQUIRED_MANUAL: tuple[str, ...] = (
+        "identifiant", "type_ouvrage", "sens", "emplacement", "type_materiau",
+        "latitude", "longitude", "lien_maps", "requalif", "etat_cunettes",
+        "type_defaut", "urgence", "description", "photo", "statut",
+    )
+
+    def latest_inspection(self) -> dict[str, str] | None:
+        """Retourne l'inspection la plus récemment ajoutée, ou ``None``."""
+        rows = self._db.list_generic("inspections")
+        return rows[0] if rows else None
+
+    def prefill_rapport(self) -> dict[str, str]:
+        """Retourne les valeurs à pré-remplir dans un nouveau rapport d'inspection.
+
+        Puise dans la dernière inspection ajoutée. Ajoute ``prestataire =
+        "BOVO & FILS"`` par défaut. Les colonnes de :attr:`RAPPORT_REQUIRED_MANUAL`
+        restent vides pour forcer la saisie utilisateur.
+        """
+        prefill: dict[str, str] = {"prestataire": "BOVO & FILS"}
+        inspection = self.latest_inspection()
+        if inspection is None:
+            return prefill
+        for rapport_col, inspection_col in self.RAPPORT_PREFILL_MAP.items():
+            value = (inspection.get(inspection_col) or "").strip()
+            if value:
+                prefill[rapport_col] = value
+        return prefill
+
+    # ------------------------------------------------------------------ #
     # KPIs (recalcul du tableau de bord Excel)
     # ------------------------------------------------------------------ #
     def kpis(self) -> dict[str, str]:
@@ -358,6 +400,31 @@ class InspectionService:
             "heures": f"{total_heures:.1f}",
             "ml_h": f"{ml_h:.1f}",
         }
+
+    # ------------------------------------------------------------------ #
+    # Export PDF (mode tableur) d'un module ASF
+    # ------------------------------------------------------------------ #
+    def export_pdf(self, sheet: str, destination: Path) -> Path:
+        """Exporte toutes les lignes d'un module ASF dans un PDF tableur.
+
+        Args:
+            sheet: Clé de module (``inspections``, ``rapports`` …).
+            destination: Chemin du PDF cible.
+
+        Returns:
+            Le chemin du PDF généré.
+        """
+        from app.exporter import Exporter  # import local pour éviter le cycle
+        exporter = Exporter(self._db)
+        columns = ORDERED_COLUMNS[sheet]
+        labels = {f.column: f.label for f in FORM_FIELDS[sheet]}
+        headers = [labels.get(c, c) for c in columns]
+        rows = [
+            [(row.get(c, "") or "") for c in columns]
+            for row in self._db.list_generic(sheet)
+        ]
+        title = f"BOVO Planning Manager — {SHEET_LABELS[sheet]}"
+        return exporter.table_to_pdf(title, headers, rows, destination)
 
     # ------------------------------------------------------------------ #
     # Import du classeur Excel
