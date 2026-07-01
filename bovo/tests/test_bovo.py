@@ -207,3 +207,139 @@ def test_export_pdf_module(tmp_path: Path, db: Database) -> None:
     result = svc.export_pdf("inspections", destination)
     assert result.exists()
     assert result.stat().st_size > 500  # PDF non vide
+
+
+# ---------------------------------------------------------------------- #
+# Authentification (bcrypt local, mono-poste)
+# ---------------------------------------------------------------------- #
+def test_auth_seed_default_users(db: Database) -> None:
+    from app.auth import AuthService, Role
+
+    svc = AuthService(db)
+    users = svc.list_users()
+    usernames = {u.username: u.role for u in users}
+    assert usernames["Bovo"] is Role.ADMIN
+    assert usernames["Dylan HENRI"] is Role.PLANIFICATEUR
+    assert usernames["ASF"] is Role.CONSULTANT
+
+    # Le seed est idempotent : un second appel ne recrée rien.
+    assert svc.seed_default_users() == 0
+
+
+def test_auth_login_success_and_failure(db: Database) -> None:
+    from app.auth import AuthService
+
+    svc = AuthService(db)
+    user = svc.login("Bovo", "ibak23")
+    assert user is not None
+    assert svc.session.is_authenticated
+    assert svc.session.can_edit()
+    assert svc.session.can_view_planning()
+    assert svc.session.can_manage_users()
+
+    svc.logout()
+    assert svc.login("Bovo", "wrong") is None
+    assert not svc.session.is_authenticated
+
+
+def test_auth_role_permissions(db: Database) -> None:
+    from app.auth import AuthService
+
+    svc = AuthService(db)
+    svc.login("ASF", "asfmontauban!")
+    assert not svc.session.can_edit()
+    assert not svc.session.can_view_planning()
+    assert not svc.session.can_manage_users()
+
+    svc.logout()
+    svc.login("Dylan HENRI", "0811048re55Ol5!")
+    assert svc.session.can_edit()
+    assert svc.session.can_view_planning()
+    assert not svc.session.can_manage_users()
+    assert svc.session.can_view_audit()
+
+
+def test_auth_create_and_change_password(db: Database) -> None:
+    from app.auth import AuthService, Role
+
+    svc = AuthService(db)
+    new_user = svc.create_user("test_user", "S3cret!", Role.PLANIFICATEUR, "Test")
+    assert new_user.id is not None
+    assert svc.login("test_user", "S3cret!") is not None
+    svc.change_password(int(new_user.id), "N3wPass!")
+    assert svc.login("test_user", "S3cret!") is None
+    assert svc.login("test_user", "N3wPass!") is not None
+
+
+# ---------------------------------------------------------------------- #
+# Audit trail
+# ---------------------------------------------------------------------- #
+def test_audit_records_inspection_lifecycle(db: Database) -> None:
+    from app.audit import AuditService
+    from app.inspections import InspectionService
+
+    audit = AuditService(db)
+    audit.bind_session("Bovo", "Admin")
+    svc = InspectionService(db, audit=audit)
+
+    row_id = svc.save_row(
+        "inspections",
+        {"n_inspection": "42", "date": "2026-07-20", "autoroute": "A62"},
+    )
+    svc.save_row(
+        "inspections",
+        {"n_inspection": "42", "date": "2026-07-20", "autoroute": "A66"},
+        row_id=row_id,
+    )
+    svc.delete_row("inspections", row_id)
+
+    entries = audit.list_entries()
+    actions = [e.action for e in entries]
+    assert "create" in actions and "update" in actions and "delete" in actions
+    update_entry = next(e for e in entries if e.action == "update")
+    diff = dict((k, (b, a)) for k, b, a in update_entry.diff())
+    assert diff["autoroute"] == ("A62", "A66")
+
+
+def test_audit_intervention_status_change(db: Database) -> None:
+    from app.audit import AuditService
+    from app.models import Intervention, StatutIntervention
+    from app.planner import Planner
+
+    audit = AuditService(db)
+    audit.bind_session("Dylan HENRI", "Planificateur")
+    iv, _ = db.upsert_intervention(Intervention(ouvrage="99", objet="TEST"))
+    planner = Planner(db, audit=audit)
+    planner.set_statut(int(iv.id or 0), StatutIntervention.TERMINEE)
+
+    entries = audit.list_entries()
+    assert len(entries) == 1
+    assert entries[0].entity == "intervention"
+    assert entries[0].after == {"statut": "Terminée"}
+
+
+# ---------------------------------------------------------------------- #
+# Documents attachés
+# ---------------------------------------------------------------------- #
+def test_documents_attach_list_delete(tmp_path: Path, db: Database) -> None:
+    from app.documents import DocumentService
+
+    svc = DocumentService(db)
+    source = tmp_path / "rapport.pdf"
+    source.write_bytes(b"%PDF-1.4 fake content")
+
+    doc = svc.attach(
+        entity="rapports", entity_id="42", source=source,
+        uploaded_by="Bovo", notes="Test",
+    )
+    assert doc.id > 0
+    assert doc.filename == "rapport.pdf"
+    assert Path(doc.storage_path).exists()
+
+    listed = svc.list_for("rapports", "42")
+    assert len(listed) == 1
+    assert listed[0].size_bytes > 0
+
+    assert svc.delete(doc.id) is True
+    assert not Path(doc.storage_path).exists()
+    assert svc.list_for("rapports", "42") == []

@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from typing import Any
+
 from app.calendar import CalendarModel
 from app.database import Database
 from app.logger import LogAction, LogLevel, get_logger, log_action
@@ -52,11 +54,17 @@ class ImportResult:
 class Planner:
     """Orchestrateur central reliant parser, base, statistiques et calendrier."""
 
-    def __init__(self, database: Database) -> None:
-        """Initialise l'orchestrateur avec une base et ses dépendances."""
+    def __init__(self, database: Database, audit: Any | None = None) -> None:
+        """Initialise l'orchestrateur avec une base et ses dépendances.
+
+        Args:
+            database: Instance :class:`Database` partagée.
+            audit: :class:`AuditService` optionnel pour l'historique.
+        """
         self._db = database
         self._parser = PdfParser()
         self._calendar = CalendarModel()
+        self._audit = audit
 
     # ------------------------------------------------------------------ #
     # Imports
@@ -201,15 +209,24 @@ class Planner:
 
     def set_statut(self, intervention_id: int, statut: StatutIntervention) -> None:
         """Met à jour le statut d'une intervention et journalise."""
+        before = self._db.get_intervention_by_id(intervention_id)
+        before_data = {"statut": before.statut.value} if before else {}
         self._db.update_intervention_fields(intervention_id, statut=statut.value)
         log_action(
             self._db,
             LogAction.UPDATE,
             f"Statut de l'intervention #{intervention_id} → {statut.value}",
         )
+        if self._audit is not None:
+            self._audit.record(
+                action="update", entity="intervention",
+                entity_id=str(intervention_id),
+                before=before_data, after={"statut": statut.value},
+            )
 
     def delete(self, intervention_id: int) -> None:
         """Supprime une intervention et journalise."""
+        before = self._db.get_intervention_by_id(intervention_id)
         self._db.delete_intervention(intervention_id)
         log_action(
             self._db,
@@ -217,3 +234,9 @@ class Planner:
             f"Intervention #{intervention_id} supprimée.",
             level=LogLevel.WARNING,
         )
+        if self._audit is not None:
+            self._audit.record(
+                action="delete", entity="intervention",
+                entity_id=str(intervention_id),
+                before=before.to_row() if before else {}, after={},
+            )

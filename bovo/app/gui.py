@@ -25,8 +25,11 @@ import customtkinter as ctk
 from PIL import Image
 
 from app import __author__, __version__
+from app.audit import AuditEntry, AuditService
+from app.auth import AuthService, Role, User
 from app.calendar import STATUT_COLORS, WEEKDAY_NAMES_FR, CalendarModel, DayCell
 from app.database import Database
+from app.documents import Document, DocumentService
 from app.exporter import Exporter
 from app.inspections import FieldSpec, InspectionService
 from app.logger import LogAction, get_logger, log_action
@@ -49,6 +52,148 @@ ACCENT = "#E63946"
 ACCENT_HOVER = "#C32A38"
 CARD_BG = ("#F2F2F2", "#1B1B1F")
 SURFACE = ("#FFFFFF", "#232329")
+
+
+class LoginDialog(ctk.CTkToplevel):
+    """Fenêtre de connexion (bcrypt local) — pré-requis avant l'application.
+
+    L'utilisateur choisit son compte, saisit son mot de passe et se connecte.
+    Un compteur d'erreurs consécutives verrouille temporairement le champ après
+    5 tentatives ratées (protection basique contre les essais aveugles).
+    """
+
+    _MAX_FAILED = 5
+
+    def __init__(
+        self,
+        master: ctk.CTk,
+        auth: AuthService,
+        on_success: Callable[[], None],
+        on_cancel: Callable[[], None],
+    ) -> None:
+        super().__init__(master)
+        self._auth = auth
+        self._on_success = on_success
+        self._on_cancel = on_cancel
+        self._failed = 0
+
+        self.title("BOVO Planning Manager — Connexion")
+        self.geometry("440x520")
+        self.resizable(False, False)
+        self.configure(fg_color=SURFACE)
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.after(50, self._center)
+        self.grab_set()
+
+        header = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0, height=110)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        logo_path = ASSETS_DIR / "logo.png"
+        if logo_path.exists():
+            image = ctk.CTkImage(Image.open(logo_path), size=(70, 70))
+            ctk.CTkLabel(header, image=image, text="").pack(pady=(20, 0))
+        ctk.CTkLabel(
+            header, text="Connexion", text_color="white",
+            font=ctk.CTkFont(size=18, weight="bold"),
+        ).pack(pady=(6, 0))
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=32, pady=24)
+
+        ctk.CTkLabel(
+            body, text="Nom d'utilisateur", anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(fill="x", pady=(0, 4))
+        self._username_var = ctk.StringVar()
+        self._username_entry = ctk.CTkEntry(
+            body, textvariable=self._username_var, height=42,
+            placeholder_text="Bovo / Dylan HENRI / ASF",
+        )
+        self._username_entry.pack(fill="x", pady=(0, 14))
+
+        ctk.CTkLabel(
+            body, text="Mot de passe", anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(fill="x", pady=(0, 4))
+        self._password_var = ctk.StringVar()
+        self._password_entry = ctk.CTkEntry(
+            body, textvariable=self._password_var, height=42,
+            show="•", placeholder_text="Votre mot de passe",
+        )
+        self._password_entry.pack(fill="x", pady=(0, 8))
+
+        self._show_pwd = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            body, text="Afficher le mot de passe", variable=self._show_pwd,
+            command=self._toggle_password, fg_color=ACCENT,
+            hover_color=ACCENT_HOVER, checkbox_height=18, checkbox_width=18,
+        ).pack(anchor="w", pady=(0, 14))
+
+        self._error_label = ctk.CTkLabel(
+            body, text="", text_color=ACCENT,
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self._error_label.pack(fill="x", pady=(0, 4))
+
+        self._login_btn = ctk.CTkButton(
+            body, text="Se connecter", height=46, fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            command=self._attempt_login,
+        )
+        self._login_btn.pack(fill="x", pady=(6, 0))
+
+        ctk.CTkLabel(
+            body, text=f"v{__version__} · Développé par {__author__}",
+            font=ctk.CTkFont(size=10), text_color="#8A8A90",
+        ).pack(side="bottom", pady=(20, 0))
+
+        self.bind("<Return>", lambda _e: self._attempt_login())
+        self.after(100, self._username_entry.focus_set)
+
+    def _center(self) -> None:
+        """Centre la fenêtre de connexion à l'écran."""
+        self.update_idletasks()
+        w, h = 440, 520
+        x = (self.winfo_screenwidth() - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _toggle_password(self) -> None:
+        """Bascule l'affichage du mot de passe."""
+        self._password_entry.configure(show="" if self._show_pwd.get() else "•")
+
+    def _attempt_login(self) -> None:
+        """Tente la connexion avec les identifiants saisis."""
+        if self._failed >= self._MAX_FAILED:
+            self._error_label.configure(
+                text="Trop d'échecs. Fermez et relancez le logiciel."
+            )
+            return
+        username = self._username_var.get().strip()
+        password = self._password_var.get()
+        if not username or not password:
+            self._error_label.configure(text="Identifiants requis.")
+            return
+        user = self._auth.login(username, password)
+        if user is None:
+            self._failed += 1
+            self._password_var.set("")
+            remaining = self._MAX_FAILED - self._failed
+            self._error_label.configure(
+                text=f"Identifiants incorrects. {remaining} tentative(s) restante(s)."
+            )
+            return
+        self._error_label.configure(text="")
+        self.grab_release()
+        self.destroy()
+        self._on_success()
+
+    def _cancel(self) -> None:
+        """Ferme la fenêtre de connexion et l'application."""
+        self.grab_release()
+        self.destroy()
+        self._on_cancel()
 
 
 class SplashScreen(ctk.CTkToplevel):
@@ -362,18 +507,243 @@ class RowFormDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class AttachDocumentDialog(ctk.CTkToplevel):
+    """Formulaire d'attachement d'un document à une entité (intervention/rapport)."""
+
+    def __init__(
+        self,
+        master: ctk.CTk,
+        service: DocumentService,
+        source: Path,
+        uploaded_by: str,
+        on_attached: Callable[[], None],
+    ) -> None:
+        super().__init__(master)
+        self._service = service
+        self._source = source
+        self._uploaded_by = uploaded_by
+        self._on_attached = on_attached
+
+        self.title("Attacher un document")
+        self.geometry("480x420")
+        self.resizable(False, False)
+        self.configure(fg_color=SURFACE)
+        self.grab_set()
+
+        head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
+        head.pack(fill="x")
+        ctk.CTkLabel(
+            head, text=f"Attacher : {source.name}",
+            font=ctk.CTkFont(size=15, weight="bold"), text_color="white",
+        ).pack(padx=16, pady=14, anchor="w")
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=14)
+
+        ctk.CTkLabel(body, text="Type d'entité", anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(fill="x")
+        self._entity_var = ctk.StringVar(value="rapports")
+        ctk.CTkOptionMenu(
+            body, values=["rapports", "inspections", "intervention", "incidents", "materiel"],
+            variable=self._entity_var, fg_color=ACCENT, button_color=ACCENT_HOVER,
+        ).pack(fill="x", pady=(2, 12))
+
+        ctk.CTkLabel(body, text="Identifiant / N° de l'entité", anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(fill="x")
+        self._entity_id_var = ctk.StringVar()
+        ctk.CTkEntry(
+            body, textvariable=self._entity_id_var, height=36,
+            placeholder_text="ex. 43854 ou 12",
+        ).pack(fill="x", pady=(2, 12))
+
+        ctk.CTkLabel(body, text="Notes (optionnel)", anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(fill="x")
+        self._notes_box = ctk.CTkTextbox(body, height=90)
+        self._notes_box.pack(fill="x", pady=(2, 12))
+
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(fill="x", padx=20, pady=(0, 16))
+        ctk.CTkButton(
+            actions, text="💾  Attacher", fg_color=ACCENT, height=40,
+            hover_color=ACCENT_HOVER, command=self._save,
+        ).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            actions, text="Annuler", fg_color="transparent",
+            border_width=1, text_color=("black", "white"),
+            height=40, width=110, command=self.destroy,
+        ).pack(side="left", padx=(10, 0))
+
+    def _save(self) -> None:
+        """Persiste l'attachement du document."""
+        entity_id = self._entity_id_var.get().strip()
+        if not entity_id:
+            messagebox.showwarning("Attacher", "L'identifiant est requis.")
+            return
+        try:
+            self._service.attach(
+                entity=self._entity_var.get(),
+                entity_id=entity_id,
+                source=self._source,
+                uploaded_by=self._uploaded_by,
+                notes=self._notes_box.get("1.0", "end").strip(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror("Attachement", f"Échec : {exc}")
+            return
+        self._on_attached()
+        self.destroy()
+
+
+class UserFormDialog(ctk.CTkToplevel):
+    """Formulaire de création d'un utilisateur (Admin uniquement)."""
+
+    def __init__(
+        self, master: ctk.CTk, auth: AuthService, on_saved: Callable[[], None]
+    ) -> None:
+        super().__init__(master)
+        self._auth = auth
+        self._on_saved = on_saved
+
+        self.title("Nouvel utilisateur")
+        self.geometry("460x460")
+        self.resizable(False, False)
+        self.configure(fg_color=SURFACE)
+        self.grab_set()
+
+        head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
+        head.pack(fill="x")
+        ctk.CTkLabel(
+            head, text="Créer un utilisateur",
+            font=ctk.CTkFont(size=15, weight="bold"), text_color="white",
+        ).pack(padx=16, pady=14, anchor="w")
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=14)
+
+        self._username = ctk.StringVar()
+        self._full_name = ctk.StringVar()
+        self._password = ctk.StringVar()
+        self._role = ctk.StringVar(value=Role.CONSULTANT.value)
+
+        for label, var, secret in [
+            ("Nom d'utilisateur", self._username, False),
+            ("Nom complet", self._full_name, False),
+            ("Mot de passe", self._password, True),
+        ]:
+            ctk.CTkLabel(body, text=label, anchor="w",
+                         font=ctk.CTkFont(size=12, weight="bold")).pack(fill="x")
+            ctk.CTkEntry(
+                body, textvariable=var, height=36,
+                show="•" if secret else "",
+            ).pack(fill="x", pady=(2, 12))
+
+        ctk.CTkLabel(body, text="Rôle", anchor="w",
+                     font=ctk.CTkFont(size=12, weight="bold")).pack(fill="x")
+        ctk.CTkOptionMenu(
+            body, values=[r.value for r in Role], variable=self._role,
+            fg_color=ACCENT, button_color=ACCENT_HOVER,
+        ).pack(fill="x", pady=(2, 12))
+
+        actions = ctk.CTkFrame(self, fg_color="transparent")
+        actions.pack(fill="x", padx=20, pady=(0, 16))
+        ctk.CTkButton(
+            actions, text="💾  Créer", fg_color=ACCENT, height=40,
+            hover_color=ACCENT_HOVER, command=self._save,
+        ).pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            actions, text="Annuler", fg_color="transparent",
+            border_width=1, text_color=("black", "white"),
+            height=40, width=110, command=self.destroy,
+        ).pack(side="left", padx=(10, 0))
+
+    def _save(self) -> None:
+        """Persiste la création de l'utilisateur."""
+        try:
+            self._auth.create_user(
+                username=self._username.get(),
+                password=self._password.get(),
+                role=Role.from_value(self._role.get()),
+                full_name=self._full_name.get(),
+            )
+        except ValueError as exc:
+            messagebox.showerror("Création", str(exc))
+            return
+        self._on_saved()
+        self.destroy()
+
+
+class PasswordChangeDialog(ctk.CTkToplevel):
+    """Dialog de changement de mot de passe (Admin uniquement)."""
+
+    def __init__(
+        self, master: ctk.CTk, auth: AuthService, user: User,
+        on_changed: Callable[[], None],
+    ) -> None:
+        super().__init__(master)
+        self._auth = auth
+        self._user = user
+        self._on_changed = on_changed
+
+        self.title("Modifier le mot de passe")
+        self.geometry("420x260")
+        self.resizable(False, False)
+        self.configure(fg_color=SURFACE)
+        self.grab_set()
+
+        head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
+        head.pack(fill="x")
+        ctk.CTkLabel(
+            head, text=f"Nouveau mot de passe : {user.username}",
+            font=ctk.CTkFont(size=14, weight="bold"), text_color="white",
+        ).pack(padx=16, pady=14, anchor="w")
+
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=14)
+
+        self._password = ctk.StringVar()
+        ctk.CTkEntry(
+            body, textvariable=self._password, height=36,
+            show="•", placeholder_text="Nouveau mot de passe",
+        ).pack(fill="x", pady=(6, 14))
+
+        ctk.CTkButton(
+            body, text="💾  Enregistrer", fg_color=ACCENT, height=40,
+            hover_color=ACCENT_HOVER, command=self._save,
+        ).pack(fill="x")
+
+    def _save(self) -> None:
+        """Persiste le changement de mot de passe."""
+        try:
+            self._auth.change_password(int(self._user.id or 0), self._password.get())
+        except ValueError as exc:
+            messagebox.showerror("Modification", str(exc))
+            return
+        self._on_changed()
+        self.destroy()
+
+
 class BovoApp(ctk.CTk):
     """Fenêtre principale du logiciel."""
 
-    def __init__(self, database: Database, settings: Settings) -> None:
+    def __init__(
+        self,
+        database: Database,
+        settings: Settings,
+        auth: AuthService | None = None,
+        audit: AuditService | None = None,
+    ) -> None:
         super().__init__()
         self._db = database
         self._settings = settings
-        self._planner = Planner(database)
+        self._auth = auth
+        self._audit = audit
+        self._planner = Planner(database, audit=audit)
         self._exporter = Exporter(database)
-        self._inspections = InspectionService(database)
+        self._inspections = InspectionService(database, audit=audit)
+        self._documents = DocumentService(database)
         self._calendar_model = CalendarModel()
         self._progress_queue: queue.Queue[tuple] = queue.Queue()
+        self._map_widget: Any = None  # créé à la demande (tkintermapview)
 
         today = date.today()
         self._cal_year = today.year
@@ -384,10 +754,37 @@ class BovoApp(ctk.CTk):
         self.geometry(f"{width}x{height}")
         self.minsize(1100, 720)
         self._apply_window_icon()
-        self.withdraw()  # masquée tant que le splash s'affiche.
+        self.withdraw()  # masquée tant que le splash + login ne sont pas terminés.
 
+    # ------------------------------------------------------------------ #
+    # Authentification & droits
+    # ------------------------------------------------------------------ #
+    def on_authenticated(self) -> None:
+        """Appelé après une connexion réussie : construit l'UI puis l'affiche."""
         self._build_layout()
-        self._show_view("accueil")
+        default_view = "accueil"
+        if not self._can("view_planning") and default_view == "accueil":
+            default_view = "accueil"  # l'accueil reste accessible
+        self._show_view(default_view)
+        self.reveal()
+
+    def _can(self, action: str) -> bool:
+        """Raccourci de vérification de droits sur la session courante."""
+        if self._auth is None:
+            return True  # mode test / sans auth
+        session = self._auth.session
+        return {
+            "edit": session.can_edit(),
+            "view_planning": session.can_view_planning(),
+            "manage_users": session.can_manage_users(),
+            "view_audit": session.can_view_audit(),
+        }.get(action, False)
+
+    def _current_username(self) -> str:
+        """Retourne le nom d'utilisateur courant (ou nom système)."""
+        if self._auth is not None and self._auth.current_user is not None:
+            return self._auth.current_user.username
+        return get_system_username()
 
     def _apply_window_icon(self) -> None:
         """Applique le logo BOVO comme icône de fenêtre (barre de tâches).
@@ -430,15 +827,7 @@ class BovoApp(ctk.CTk):
         ).pack(pady=(0, 20))
 
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
-        nav_items = [
-            ("accueil", "🏠  Accueil"),
-            ("calendrier", "📅  Calendrier"),
-            ("interventions", "🔍  Interventions"),
-            ("inspections", "🧰  Inspections ASF"),
-            ("import", "⬆️  Importer PDF"),
-            ("journal", "📝  Journal"),
-            ("parametres", "⚙️  Paramètres"),
-        ]
+        nav_items = self._nav_items_for_role()
         for key, label in nav_items:
             btn = ctk.CTkButton(
                 sidebar, text=label, anchor="w", height=44,
@@ -449,15 +838,83 @@ class BovoApp(ctk.CTk):
             btn.pack(fill="x", padx=16, pady=4)
             self._nav_buttons[key] = btn
 
+        # Bandeau utilisateur en pied de sidebar
+        if self._auth is not None and self._auth.current_user is not None:
+            user = self._auth.current_user
+            user_box = ctk.CTkFrame(sidebar, fg_color="transparent")
+            user_box.pack(side="bottom", fill="x", padx=12, pady=(4, 6))
+            ctk.CTkLabel(
+                user_box, text=f"👤 {user.username}",
+                font=ctk.CTkFont(size=12, weight="bold"), anchor="w",
+            ).pack(fill="x")
+            ctk.CTkLabel(
+                user_box, text=user.role.value, text_color="#9A9AA0",
+                font=ctk.CTkFont(size=10), anchor="w",
+            ).pack(fill="x")
+            ctk.CTkButton(
+                user_box, text="Se déconnecter", height=28,
+                fg_color="transparent", border_width=1,
+                text_color=("black", "white"), hover_color=ACCENT,
+                font=ctk.CTkFont(size=11),
+                command=self._logout,
+            ).pack(fill="x", pady=(6, 0))
+
         ctk.CTkLabel(
             sidebar, text=f"v{__version__} · {__author__}",
             font=ctk.CTkFont(size=11), text_color="#7A7A80",
-        ).pack(side="bottom", pady=16)
+        ).pack(side="bottom", pady=(8, 12))
 
         self._content = ctk.CTkFrame(self, fg_color="transparent")
         self._content.grid(row=0, column=1, sticky="nsew", padx=24, pady=24)
         self._content.grid_columnconfigure(0, weight=1)
         self._content.grid_rowconfigure(0, weight=1)
+
+    def _nav_items_for_role(self) -> list[tuple[str, str]]:
+        """Retourne la liste des items de navigation autorisés au rôle courant.
+
+        Le Consultant n'accède pas au planning (Calendrier, Interventions,
+        Importer PDF). Seul l'Admin voit « Utilisateurs ».
+        """
+        items: list[tuple[str, str]] = [("accueil", "🏠  Accueil")]
+        if self._can("view_planning"):
+            items += [
+                ("calendrier", "📅  Calendrier"),
+                ("interventions", "🔍  Interventions"),
+            ]
+        items += [
+            ("inspections", "🧰  Inspections ASF"),
+            ("carte", "🗺️  Carte"),
+            ("documents", "📎  Documents"),
+        ]
+        if self._can("view_planning"):
+            items += [("import", "⬆️  Importer PDF")]
+        if self._can("view_audit"):
+            items += [("historique", "🕒  Historique")]
+        if self._can("manage_users"):
+            items += [("utilisateurs", "👥  Utilisateurs")]
+        items += [
+            ("journal", "📝  Journal"),
+            ("parametres", "⚙️  Paramètres"),
+        ]
+        return items
+
+    def _logout(self) -> None:
+        """Déconnecte l'utilisateur et revient à l'écran de connexion."""
+        if self._auth is None:
+            return
+        self._auth.logout()
+        self.withdraw()
+        for child in self.winfo_children():
+            if not isinstance(child, ctk.CTkToplevel):
+                child.destroy()
+        LoginDialog(self, self._auth, on_success=self._relogin, on_cancel=self.on_close)
+
+    def _relogin(self) -> None:
+        """Callback après relogin : rebuild UI selon nouveau rôle."""
+        current = self._auth.current_user if self._auth else None
+        if self._audit is not None and current is not None:
+            self._audit.bind_session(current.username, current.role.value)
+        self.on_authenticated()
 
     def _clear_content(self) -> None:
         """Vide la zone de contenu avant d'afficher une nouvelle vue."""
@@ -466,6 +923,11 @@ class BovoApp(ctk.CTk):
 
     def _show_view(self, key: str) -> None:
         """Affiche la vue demandée et met en surbrillance l'onglet actif."""
+        # Filtrage sécurité : si l'utilisateur n'a plus le droit d'accès, on
+        # bascule sur « accueil ».
+        allowed = {k for k, _ in self._nav_items_for_role()}
+        if key not in allowed:
+            key = "accueil"
         for nav_key, btn in self._nav_buttons.items():
             btn.configure(fg_color=ACCENT if nav_key == key else "transparent")
         self._clear_content()
@@ -474,7 +936,11 @@ class BovoApp(ctk.CTk):
             "calendrier": self._view_calendrier,
             "interventions": self._view_interventions,
             "inspections": self._view_inspections,
+            "carte": self._view_carte,
+            "documents": self._view_documents,
             "import": self._view_import,
+            "historique": self._view_historique,
+            "utilisateurs": self._view_utilisateurs,
             "journal": self._view_journal,
             "parametres": self._view_parametres,
         }[key]
@@ -490,7 +956,7 @@ class BovoApp(ctk.CTk):
         frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
         ctk.CTkLabel(
-            frame, text=f"Bonjour {get_system_username()} 👋",
+            frame, text=f"Bonjour {self._current_username()} 👋",
             font=ctk.CTkFont(size=28, weight="bold"),
         ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
         ctk.CTkLabel(
@@ -970,10 +1436,11 @@ class BovoApp(ctk.CTk):
             header, text="Inspections ASF (ITV)",
             font=ctk.CTkFont(size=24, weight="bold"),
         ).pack(side="left")
-        ctk.CTkButton(
-            header, text="📊  Importer le classeur Excel", fg_color="#43AA8B",
-            hover_color="#369072", command=self._import_workbook,
-        ).pack(side="right")
+        if self._can("edit"):
+            ctk.CTkButton(
+                header, text="📊  Importer le classeur Excel", fg_color="#43AA8B",
+                hover_color="#369072", command=self._import_workbook,
+            ).pack(side="right")
 
         tabview = ctk.CTkTabview(frame, fg_color=CARD_BG)
         tabview.grid(row=1, column=0, sticky="nsew")
@@ -1003,11 +1470,12 @@ class BovoApp(ctk.CTk):
             hover_color="#35617D",
             command=lambda sh=sheet: self._export_module_pdf(sh),
         ).pack(side="right", padx=4)
-        ctk.CTkButton(
-            toolbar, text="➕  Ajouter", width=120, fg_color=ACCENT,
-            hover_color=ACCENT_HOVER,
-            command=lambda sh=sheet: self._open_row_form(sh, None),
-        ).pack(side="right", padx=4)
+        if self._can("edit"):
+            ctk.CTkButton(
+                toolbar, text="➕  Ajouter", width=120, fg_color=ACCENT,
+                hover_color=ACCENT_HOVER,
+                command=lambda sh=sheet: self._open_row_form(sh, None),
+            ).pack(side="right", padx=4)
 
         table = ctk.CTkScrollableFrame(parent, fg_color="transparent")
         table.grid(row=1, column=0, sticky="nsew")
@@ -1072,7 +1540,8 @@ class BovoApp(ctk.CTk):
         container.pack(fill="x", pady=2)
         row_id = int(row["id"])
         handler = lambda _e=None, sh=sheet, rid=row_id: self._open_row_form(sh, rid)  # noqa: E731
-        container.bind("<Button-1>", handler)
+        if self._can("edit"):
+            container.bind("<Button-1>", handler)
         for col, _label in columns:
             value = row.get(col, "") or "—"
             if col == "date":
@@ -1082,12 +1551,14 @@ class BovoApp(ctk.CTk):
                 font=ctk.CTkFont(size=12),
             )
             label.pack(side="left", padx=6, pady=8)
-            label.bind("<Button-1>", handler)
-        ctk.CTkButton(
-            container, text="🗑", width=36, fg_color="transparent",
-            text_color=ACCENT, hover_color=CARD_BG,
-            command=lambda sh=sheet, rid=row_id: self._delete_module_row(sh, rid),
-        ).pack(side="right", padx=6)
+            if self._can("edit"):
+                label.bind("<Button-1>", handler)
+        if self._can("edit"):
+            ctk.CTkButton(
+                container, text="🗑", width=36, fg_color="transparent",
+                text_color=ACCENT, hover_color=CARD_BG,
+                command=lambda sh=sheet, rid=row_id: self._delete_module_row(sh, rid),
+            ).pack(side="right", padx=6)
 
     def _delete_module_row(self, sheet: str, row_id: int) -> None:
         """Supprime une ligne de module après confirmation."""
@@ -1128,6 +1599,413 @@ class BovoApp(ctk.CTk):
             f"• Interventions marquées « Terminée » : "
             f"{summary.get('interventions_liees', 0)}",
         )
+
+    # ------------------------------------------------------------------ #
+    # Vue : Carte interactive des interventions / rapports
+    # ------------------------------------------------------------------ #
+    def _view_carte(self) -> None:
+        """Affiche une carte OpenStreetMap avec les rapports géolocalisés."""
+        frame = ctk.CTkFrame(self._content, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        ctk.CTkLabel(
+            header, text="Carte des inspections ASF",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).pack(side="left")
+        self._map_count_label = ctk.CTkLabel(
+            header, text="", text_color="#9A9AA0",
+        )
+        self._map_count_label.pack(side="left", padx=16)
+
+        try:
+            import tkintermapview  # import local (dépendance lourde)
+        except ImportError:
+            ctk.CTkLabel(
+                frame,
+                text="⚠️  tkintermapview non installé. "
+                "Exécutez `pip install tkintermapview`.",
+                text_color=ACCENT,
+            ).grid(row=1, column=0, pady=40)
+            return
+
+        map_container = ctk.CTkFrame(frame, fg_color=CARD_BG, corner_radius=10)
+        map_container.grid(row=1, column=0, sticky="nsew")
+        map_container.grid_rowconfigure(0, weight=1)
+        map_container.grid_columnconfigure(0, weight=1)
+        self._map_widget = tkintermapview.TkinterMapView(
+            map_container, width=800, height=560, corner_radius=8,
+        )
+        self._map_widget.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        self._map_widget.set_position(43.6047, 1.4442)  # Toulouse par défaut
+        self._map_widget.set_zoom(8)
+
+        markers = self._collect_map_points()
+        for lat, lon, title, description in markers:
+            self._map_widget.set_marker(lat, lon, text=title, text_color="#E63946")
+        if markers:
+            self._map_widget.set_position(markers[0][0], markers[0][1])
+            self._map_widget.set_zoom(10)
+        self._map_count_label.configure(
+            text=f"{len(markers)} point(s) géolocalisé(s)"
+        )
+
+    def _collect_map_points(self) -> list[tuple[float, float, str, str]]:
+        """Extrait les coordonnées des rapports (latitude/longitude non vides)."""
+        points: list[tuple[float, float, str, str]] = []
+        for row in self._db.list_generic("rapports"):
+            lat_raw = (row.get("latitude") or "").strip().replace(",", ".")
+            lon_raw = (row.get("longitude") or "").strip().replace(",", ".")
+            try:
+                lat, lon = float(lat_raw), float(lon_raw)
+            except (TypeError, ValueError):
+                continue
+            title = row.get("identifiant") or f"Rapport #{row['id']}"
+            desc = f"{row.get('autoroute', '')} · {row.get('secteur', '')}"
+            points.append((lat, lon, title, desc))
+        return points
+
+    # ------------------------------------------------------------------ #
+    # Vue : Gestion documentaire
+    # ------------------------------------------------------------------ #
+    def _view_documents(self) -> None:
+        """Affiche la liste des documents attachés, avec ajout/suppression."""
+        frame = ctk.CTkFrame(self._content, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(2, weight=1)
+
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        ctk.CTkLabel(
+            header, text="Documents attachés",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).pack(side="left")
+        if self._can("edit"):
+            ctk.CTkButton(
+                header, text="📎  Attacher un document", fg_color=ACCENT,
+                hover_color=ACCENT_HOVER, command=self._attach_document,
+            ).pack(side="right")
+
+        toolbar = ctk.CTkFrame(frame, fg_color="transparent")
+        toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        self._doc_search_var = ctk.StringVar()
+        self._doc_search_var.trace_add("write", lambda *_: self._refresh_documents())
+        ctk.CTkEntry(
+            toolbar, textvariable=self._doc_search_var, height=36,
+            placeholder_text="Rechercher (fichier, note)…",
+        ).pack(side="left", fill="x", expand=True)
+
+        self._doc_table = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        self._doc_table.grid(row=2, column=0, sticky="nsew")
+        self._refresh_documents()
+
+    def _refresh_documents(self) -> None:
+        """Recharge la liste des documents selon la recherche courante."""
+        for widget in self._doc_table.winfo_children():
+            widget.destroy()
+        documents = self._documents.list_all(self._doc_search_var.get().strip())
+
+        head = ctk.CTkFrame(self._doc_table, fg_color=CARD_BG, corner_radius=8)
+        head.pack(fill="x", pady=(0, 4))
+        for text, w in [
+            ("Fichier", 260), ("Entité", 130), ("Taille", 90),
+            ("Par", 140), ("Date", 170),
+        ]:
+            ctk.CTkLabel(
+                head, text=text, width=w, anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).pack(side="left", padx=6, pady=8)
+
+        if not documents:
+            ctk.CTkLabel(
+                self._doc_table,
+                text="Aucun document. Cliquez « Attacher un document » pour commencer.",
+                text_color="#9A9AA0",
+            ).pack(anchor="w", pady=20)
+            return
+
+        for doc in documents:
+            self._doc_row(doc)
+
+    def _doc_row(self, doc: Document) -> None:
+        """Construit une ligne de la table Documents."""
+        row = ctk.CTkFrame(self._doc_table, fg_color=SURFACE, height=40, corner_radius=8)
+        row.pack(fill="x", pady=2)
+        date_str = doc.uploaded_at[:19].replace("T", " ")
+        cells = [
+            (doc.filename, 260),
+            (f"{doc.entity} #{doc.entity_id}", 130),
+            (doc.size_readable, 90),
+            (doc.uploaded_by, 140),
+            (date_str, 170),
+        ]
+        for value, w in cells:
+            ctk.CTkLabel(
+                row, text=str(value)[:60], width=w, anchor="w",
+                font=ctk.CTkFont(size=12),
+            ).pack(side="left", padx=6, pady=8)
+        actions = ctk.CTkFrame(row, fg_color="transparent")
+        actions.pack(side="right", padx=6)
+        ctk.CTkButton(
+            actions, text="Ouvrir", width=76, fg_color=CARD_BG,
+            text_color=("black", "white"), hover_color=ACCENT,
+            command=lambda d=doc: self._open_document(d),
+        ).pack(side="left", padx=2)
+        if self._can("edit"):
+            ctk.CTkButton(
+                actions, text="🗑", width=36, fg_color="transparent",
+                text_color=ACCENT, hover_color=CARD_BG,
+                command=lambda d=doc: self._delete_document(d),
+            ).pack(side="left", padx=2)
+
+    def _attach_document(self) -> None:
+        """Ouvre un sélecteur de fichier et rattache le document choisi."""
+        path = filedialog.askopenfilename(
+            title="Sélectionner un document",
+            initialdir=str(self._settings.pdf_folder),
+            filetypes=[
+                ("Documents", "*.pdf *.png *.jpg *.jpeg *.webp *.docx *.xlsx *.txt"),
+                ("Tous les fichiers", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        dialog = AttachDocumentDialog(
+            self, self._documents, Path(path), self._current_username(),
+            on_attached=self._refresh_documents,
+        )
+        self.wait_window(dialog)
+
+    def _open_document(self, doc: Document) -> None:
+        """Ouvre le document dans l'application native."""
+        if not open_file_native(doc.path):
+            messagebox.showwarning("Document", "Fichier introuvable sur le disque.")
+
+    def _delete_document(self, doc: Document) -> None:
+        """Supprime un document attaché (base + fichier)."""
+        if not messagebox.askyesno("Suppression", f"Supprimer « {doc.filename} » ?"):
+            return
+        self._documents.delete(doc.id)
+        if self._audit is not None:
+            self._audit.record(
+                action="delete", entity="document", entity_id=str(doc.id),
+                before={"filename": doc.filename, "entity": doc.entity},
+                after={},
+            )
+        self._refresh_documents()
+
+    # ------------------------------------------------------------------ #
+    # Vue : Historique (audit trail)
+    # ------------------------------------------------------------------ #
+    def _view_historique(self) -> None:
+        """Affiche l'audit trail (qui a modifié quoi et quand)."""
+        frame = ctk.CTkFrame(self._content, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(2, weight=1)
+
+        ctk.CTkLabel(
+            frame, text="Historique des modifications",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).grid(row=0, column=0, sticky="w", pady=(0, 12))
+
+        toolbar = ctk.CTkFrame(frame, fg_color="transparent")
+        toolbar.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        self._audit_search_var = ctk.StringVar()
+        self._audit_search_var.trace_add("write", lambda *_: self._refresh_audit())
+        ctk.CTkEntry(
+            toolbar, textvariable=self._audit_search_var, height=36,
+            placeholder_text="Rechercher (utilisateur, entité, valeur…)",
+        ).pack(side="left", fill="x", expand=True)
+        self._audit_entity_var = ctk.StringVar(value="Toutes entités")
+        ctk.CTkOptionMenu(
+            toolbar, values=[
+                "Toutes entités", "intervention", "inspections",
+                "rapports", "incidents", "materiel", "document",
+            ],
+            variable=self._audit_entity_var,
+            command=lambda _: self._refresh_audit(),
+            fg_color=ACCENT, button_color=ACCENT_HOVER, width=170,
+        ).pack(side="left", padx=8)
+
+        self._audit_table = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        self._audit_table.grid(row=2, column=0, sticky="nsew")
+        self._refresh_audit()
+
+    def _refresh_audit(self) -> None:
+        """Recharge la liste des entrées d'audit selon les filtres."""
+        for widget in self._audit_table.winfo_children():
+            widget.destroy()
+        if self._audit is None:
+            ctk.CTkLabel(
+                self._audit_table, text="Historique non disponible.",
+                text_color="#9A9AA0",
+            ).pack(anchor="w", pady=20)
+            return
+        entity = self._audit_entity_var.get()
+        entity = "" if entity == "Toutes entités" else entity
+        entries = self._audit.list_entries(
+            limit=300, entity=entity, search=self._audit_search_var.get().strip(),
+        )
+        if not entries:
+            ctk.CTkLabel(
+                self._audit_table, text="Aucune modification pour ces critères.",
+                text_color="#9A9AA0",
+            ).pack(anchor="w", pady=20)
+            return
+        for entry in entries:
+            self._audit_row(entry)
+
+    def _audit_row(self, entry: AuditEntry) -> None:
+        """Construit une ligne de l'audit trail."""
+        color_by_action = {
+            "create": "#43AA8B", "update": "#457B9D", "delete": ACCENT,
+        }
+        card = ctk.CTkFrame(self._audit_table, fg_color=SURFACE, corner_radius=8)
+        card.pack(fill="x", pady=2)
+        head = ctk.CTkFrame(card, fg_color="transparent")
+        head.pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(
+            head, text=entry.action.upper(), width=70, anchor="w",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=color_by_action.get(entry.action, "#9A9AA0"),
+        ).pack(side="left")
+        ctk.CTkLabel(
+            head, text=f"{entry.entity} #{entry.entity_id}", anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(side="left", padx=(4, 12))
+        ctk.CTkLabel(
+            head, text=f"par {entry.username} ({entry.role})",
+            font=ctk.CTkFont(size=11), text_color="#9A9AA0",
+        ).pack(side="left")
+        ctk.CTkLabel(
+            head, text=entry.created_at[:19].replace("T", " "),
+            font=ctk.CTkFont(size=11), text_color="#9A9AA0",
+        ).pack(side="right")
+
+        diff = entry.diff()
+        if diff:
+            body = ctk.CTkFrame(card, fg_color="transparent")
+            body.pack(fill="x", padx=10, pady=(0, 8))
+            for field_name, before, after in diff[:8]:
+                line = ctk.CTkFrame(body, fg_color="transparent")
+                line.pack(fill="x", pady=1)
+                ctk.CTkLabel(
+                    line, text=field_name, width=140, anchor="w",
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                ).pack(side="left")
+                ctk.CTkLabel(
+                    line, text=f"{before or '∅'} → {after or '∅'}", anchor="w",
+                    font=ctk.CTkFont(size=11), text_color="#9A9AA0",
+                    wraplength=520, justify="left",
+                ).pack(side="left", fill="x", expand=True)
+
+    # ------------------------------------------------------------------ #
+    # Vue : Utilisateurs (Admin uniquement)
+    # ------------------------------------------------------------------ #
+    def _view_utilisateurs(self) -> None:
+        """Écran de gestion des utilisateurs, accessible uniquement à l'Admin."""
+        frame = ctk.CTkFrame(self._content, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(2, weight=1)
+
+        header = ctk.CTkFrame(frame, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        ctk.CTkLabel(
+            header, text="Utilisateurs & rôles",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).pack(side="left")
+        ctk.CTkButton(
+            header, text="➕  Nouvel utilisateur", fg_color=ACCENT,
+            hover_color=ACCENT_HOVER,
+            command=lambda: self._open_user_form(None),
+        ).pack(side="right")
+
+        self._user_table = ctk.CTkScrollableFrame(frame, fg_color="transparent")
+        self._user_table.grid(row=2, column=0, sticky="nsew")
+        self._refresh_users()
+
+    def _refresh_users(self) -> None:
+        """Recharge la liste des utilisateurs."""
+        for widget in self._user_table.winfo_children():
+            widget.destroy()
+        if self._auth is None:
+            return
+        head = ctk.CTkFrame(self._user_table, fg_color=CARD_BG, corner_radius=8)
+        head.pack(fill="x", pady=(0, 4))
+        for text, w in [
+            ("Utilisateur", 200), ("Nom complet", 220),
+            ("Rôle", 160), ("Dernière connexion", 200),
+        ]:
+            ctk.CTkLabel(
+                head, text=text, width=w, anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold"),
+            ).pack(side="left", padx=6, pady=8)
+        for user in self._auth.list_users():
+            self._user_row(user)
+
+    def _user_row(self, user: User) -> None:
+        """Construit une ligne de la table utilisateurs."""
+        row = ctk.CTkFrame(self._user_table, fg_color=SURFACE, height=40, corner_radius=8)
+        row.pack(fill="x", pady=2)
+        last = user.last_login[:19].replace("T", " ") if user.last_login else "—"
+        for value, w in [
+            (user.username, 200), (user.full_name or "—", 220),
+            (user.role.value, 160), (last, 200),
+        ]:
+            ctk.CTkLabel(
+                row, text=str(value)[:60], width=w, anchor="w",
+                font=ctk.CTkFont(size=12),
+            ).pack(side="left", padx=6, pady=8)
+        actions = ctk.CTkFrame(row, fg_color="transparent")
+        actions.pack(side="right", padx=6)
+        ctk.CTkButton(
+            actions, text="🔑  MdP", width=80, fg_color=CARD_BG,
+            text_color=("black", "white"), hover_color=ACCENT,
+            command=lambda u=user: self._change_user_password(u),
+        ).pack(side="left", padx=2)
+        current = self._auth.current_user if self._auth else None
+        if current is None or current.id != user.id:
+            ctk.CTkButton(
+                actions, text="🗑", width=36, fg_color="transparent",
+                text_color=ACCENT, hover_color=CARD_BG,
+                command=lambda u=user: self._delete_user(u),
+            ).pack(side="left", padx=2)
+
+    def _open_user_form(self, user: User | None) -> None:
+        """Ouvre le formulaire de création d'utilisateur."""
+        if self._auth is None:
+            return
+        UserFormDialog(self, self._auth, on_saved=self._refresh_users)
+
+    def _change_user_password(self, user: User) -> None:
+        """Ouvre un dialog de changement de mot de passe."""
+        if self._auth is None or user.id is None:
+            return
+        PasswordChangeDialog(
+            self, self._auth, user, on_changed=self._refresh_users,
+        )
+
+    def _delete_user(self, user: User) -> None:
+        """Supprime un utilisateur (Admin uniquement)."""
+        if self._auth is None or user.id is None:
+            return
+        if not messagebox.askyesno(
+            "Suppression",
+            f"Supprimer définitivement l'utilisateur « {user.username} » ?",
+        ):
+            return
+        try:
+            self._auth.delete_user(user.id)
+        except ValueError as exc:
+            messagebox.showerror("Suppression", str(exc))
+            return
+        self._refresh_users()
 
     # ------------------------------------------------------------------ #
     # Vue : Journal

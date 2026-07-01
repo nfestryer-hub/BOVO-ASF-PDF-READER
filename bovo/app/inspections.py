@@ -221,10 +221,16 @@ class InspectionService:
 
     SHEETS: tuple[str, ...] = ("inspections", "rapports", "incidents", "materiel")
 
-    def __init__(self, database: Database) -> None:
-        """Initialise le service et garantit l'existence des tables."""
+    def __init__(self, database: Database, audit: Any | None = None) -> None:
+        """Initialise le service et garantit l'existence des tables.
+
+        Args:
+            database: Instance :class:`Database` partagée.
+            audit: :class:`AuditService` optionnel pour enregistrer l'historique.
+        """
         self._db = database
         self._db.ensure_tables_from_specs(ORDERED_COLUMNS)
+        self._audit = audit
         self._referentiel = self._load_referentiel()
 
     # ------------------------------------------------------------------ #
@@ -285,31 +291,52 @@ class InspectionService:
         Returns:
             L'identifiant de la ligne enregistrée.
         """
+        before: dict[str, str] = {}
         if row_id is None:
             new_id = self._db.insert_generic(sheet, data)
             log_action(
                 self._db, LogAction.CREATE,
                 f"{SHEET_LABELS[sheet]} : nouvelle entrée #{new_id}.",
             )
+            self._audit_record("create", sheet, str(new_id), {}, data)
         else:
+            before = self._db.get_generic(sheet, row_id) or {}
             self._db.update_generic(sheet, row_id, data)
             new_id = row_id
             log_action(
                 self._db, LogAction.UPDATE,
                 f"{SHEET_LABELS[sheet]} : entrée #{row_id} modifiée.",
             )
+            self._audit_record("update", sheet, str(row_id), before, data)
         if sheet == "rapports":
             self._mark_intervention_done(data.get("identifiant", ""))
         return new_id
 
     def delete_row(self, sheet: str, row_id: int) -> None:
         """Supprime une ligne d'un module."""
+        before = self._db.get_generic(sheet, row_id) or {}
         self._db.delete_generic(sheet, row_id)
         log_action(
             self._db, LogAction.DELETE,
             f"{SHEET_LABELS[sheet]} : entrée #{row_id} supprimée.",
             level=LogLevel.WARNING,
         )
+        self._audit_record("delete", sheet, str(row_id), before, {})
+
+    def _audit_record(
+        self, action: str, entity: str, entity_id: str,
+        before: dict[str, Any], after: dict[str, Any],
+    ) -> None:
+        """Enregistre une modification dans l'audit trail si le service est branché."""
+        if self._audit is None:
+            return
+        try:
+            self._audit.record(
+                action=action, entity=entity, entity_id=entity_id,
+                before=before, after=after,
+            )
+        except Exception as exc:  # noqa: BLE001 - audit best-effort
+            logger.warning("Audit non enregistré : %s", exc)
 
     # ------------------------------------------------------------------ #
     # Liaison rapport → intervention

@@ -114,6 +114,15 @@ class Database:
             row = cur.fetchone()
         return Intervention.from_row(dict(row)) if row else None
 
+    def get_intervention_by_id(self, intervention_id: int) -> Intervention | None:
+        """Retourne l'intervention par son id, ou ``None``."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM interventions WHERE id = ?", (intervention_id,)
+            )
+            row = cur.fetchone()
+        return Intervention.from_row(dict(row)) if row else None
+
     def upsert_intervention(self, intervention: Intervention) -> tuple[Intervention, bool]:
         """Crée ou met à jour une intervention selon son numéro d'ouvrage.
 
@@ -456,3 +465,223 @@ class Database:
             )
             row = cur.fetchone()
         return dict(row) if row else None
+
+    # ------------------------------------------------------------------ #
+    # Utilisateurs (auth locale)
+    # ------------------------------------------------------------------ #
+    def ensure_users_table(self) -> None:
+        """Crée la table ``users`` si nécessaire."""
+        with self._lock:
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS users (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username      TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    role          TEXT NOT NULL,
+                    full_name     TEXT DEFAULT '',
+                    created_at    TEXT NOT NULL,
+                    last_login    TEXT DEFAULT ''
+                );
+                """
+            )
+            self._conn.commit()
+
+    def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        """Retourne l'utilisateur (avec hash) par son nom, ou ``None``."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def insert_user(
+        self, *, username: str, password_hash: str, role: str, full_name: str = ""
+    ) -> int:
+        """Insère un utilisateur. Retourne l'id créé."""
+        now = datetime.now(UTC).isoformat()
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO users (username, password_hash, role, full_name,"
+                " created_at) VALUES (?, ?, ?, ?, ?)",
+                (username, password_hash, role, full_name, now),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid or 0)
+
+    def update_user_password(self, user_id: int, password_hash: str) -> None:
+        """Met à jour le hash de mot de passe d'un utilisateur."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE users SET password_hash = ? WHERE id = ?",
+                (password_hash, user_id),
+            )
+            self._conn.commit()
+
+    def touch_user_login(self, user_id: int, when: str) -> None:
+        """Met à jour la date de dernière connexion."""
+        with self._lock:
+            self._conn.execute(
+                "UPDATE users SET last_login = ? WHERE id = ?", (when, user_id)
+            )
+            self._conn.commit()
+
+    def list_users(self) -> list[dict[str, Any]]:
+        """Liste tous les utilisateurs (avec hash — usage service uniquement)."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM users ORDER BY username ASC"
+            )
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_user(self, user_id: int) -> None:
+        """Supprime un utilisateur par son id."""
+        with self._lock:
+            self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            self._conn.commit()
+
+    # ------------------------------------------------------------------ #
+    # Audit trail
+    # ------------------------------------------------------------------ #
+    def ensure_audit_table(self) -> None:
+        """Crée la table ``audit_log`` si nécessaire."""
+        with self._lock:
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username    TEXT DEFAULT '',
+                    role        TEXT DEFAULT '',
+                    action      TEXT NOT NULL,
+                    entity      TEXT NOT NULL,
+                    entity_id   TEXT NOT NULL,
+                    before_json TEXT DEFAULT '',
+                    after_json  TEXT DEFAULT '',
+                    created_at  TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_audit_entity
+                    ON audit_log(entity, entity_id);
+                CREATE INDEX IF NOT EXISTS idx_audit_created
+                    ON audit_log(created_at DESC);
+                """
+            )
+            self._conn.commit()
+
+    def insert_audit(
+        self, *, username: str, role: str, action: str, entity: str,
+        entity_id: str, before_json: str, after_json: str, created_at: str,
+    ) -> None:
+        """Insère une entrée d'audit."""
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO audit_log (username, role, action, entity, entity_id,"
+                " before_json, after_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (username, role, action, entity, entity_id,
+                 before_json, after_json, created_at),
+            )
+            self._conn.commit()
+
+    def list_audit(
+        self, *, limit: int = 500, entity: str = "", search: str = ""
+    ) -> list[dict[str, Any]]:
+        """Retourne les dernières entrées d'audit, filtrées optionnellement."""
+        query = "SELECT * FROM audit_log WHERE 1=1"
+        params: list[Any] = []
+        if entity:
+            query += " AND entity = ?"
+            params.append(entity)
+        if search:
+            like = f"%{search}%"
+            query += (
+                " AND (username LIKE ? OR entity LIKE ? OR entity_id LIKE ?"
+                " OR before_json LIKE ? OR after_json LIKE ?)"
+            )
+            params.extend([like] * 5)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        with self._lock:
+            cur = self._conn.execute(query, params)
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------ #
+    # Documents attachés
+    # ------------------------------------------------------------------ #
+    def ensure_documents_table(self) -> None:
+        """Crée la table ``documents`` si nécessaire."""
+        with self._lock:
+            self._conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS documents (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entity        TEXT NOT NULL,
+                    entity_id     TEXT NOT NULL,
+                    filename      TEXT NOT NULL,
+                    storage_path  TEXT NOT NULL,
+                    mime_type     TEXT DEFAULT '',
+                    size_bytes    INTEGER DEFAULT 0,
+                    uploaded_by   TEXT DEFAULT '',
+                    uploaded_at   TEXT NOT NULL,
+                    notes         TEXT DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_docs_entity
+                    ON documents(entity, entity_id);
+                """
+            )
+            self._conn.commit()
+
+    def insert_document(
+        self, *, entity: str, entity_id: str, filename: str, storage_path: str,
+        mime_type: str, size_bytes: int, uploaded_by: str, uploaded_at: str,
+        notes: str = "",
+    ) -> int:
+        """Insère un document et retourne son id."""
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT INTO documents (entity, entity_id, filename, storage_path,"
+                " mime_type, size_bytes, uploaded_by, uploaded_at, notes)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (entity, entity_id, filename, storage_path, mime_type,
+                 size_bytes, uploaded_by, uploaded_at, notes),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid or 0)
+
+    def list_documents(
+        self, *, entity: str = "", entity_id: str = "", search: str = ""
+    ) -> list[dict[str, Any]]:
+        """Liste les documents, filtrés par entité / recherche."""
+        query = "SELECT * FROM documents WHERE 1=1"
+        params: list[Any] = []
+        if entity:
+            query += " AND entity = ?"
+            params.append(entity)
+        if entity_id:
+            query += " AND entity_id = ?"
+            params.append(entity_id)
+        if search:
+            like = f"%{search}%"
+            query += " AND (filename LIKE ? OR notes LIKE ?)"
+            params.extend([like, like])
+        query += " ORDER BY id DESC"
+        with self._lock:
+            cur = self._conn.execute(query, params)
+            rows = cur.fetchall()
+        return [dict(r) for r in rows]
+
+    def get_document(self, document_id: int) -> dict[str, Any] | None:
+        """Retourne un document par son id."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT * FROM documents WHERE id = ?", (document_id,)
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def delete_document(self, document_id: int) -> None:
+        """Supprime un document (métadonnées SQLite uniquement)."""
+        with self._lock:
+            self._conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+            self._conn.commit()

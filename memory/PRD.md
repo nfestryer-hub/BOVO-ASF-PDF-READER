@@ -64,6 +64,33 @@ GUI sans logique métier ; logique répartie dans les modules.
 - **Icône de fenêtre** BOVO appliquée (barre de tâches Windows/Linux/macOS).
 - 31 tests pytest OK (16 nouveaux) ; Ruff 0 erreur ; smoke GUI Xvfb OK.
 
+### Itération 4 — Backlog P2 : Auth, Audit, Carte, Documents (2026-07-01)
+- **Auth locale bcrypt** (coût 12) : 3 comptes seedés idempotents
+  (Admin/Planificateur/Consultant). Écran de connexion animé au démarrage,
+  session mémoire, verrouillage après 5 échecs.
+- **Rôles & permissions** : le Consultant n'a pas accès au Planning
+  (Calendrier / Interventions / Importer PDF) ; boutons Ajouter/Supprimer
+  masqués pour lui ; Admin seul voit « Utilisateurs ».
+- **Historique des modifications** (audit trail) : table `audit_log` avec
+  before/after JSON par entité (intervention, inspections, rapports, incidents,
+  materiel, document). Vue Historique avec filtre par entité + recherche.
+  `AuditEntry.diff()` filtre les champs meta (id, created_at, updated_at).
+- **Carte interactive** OpenStreetMap via `tkintermapview` (offline tiles),
+  marqueurs bâtis depuis latitude/longitude des rapports. Centrée sur
+  Toulouse par défaut.
+- **Gestion documentaire** : attacher PDF/PNG/JPEG/DOCX/XLSX à une entité,
+  stockage local (`bovo/documents/<AAAA>/<uuid>.<ext>`) référencé en base.
+  Ouverture native + suppression.
+- **Écran Utilisateurs** (Admin) : création + changement de mot de passe +
+  suppression (sauf soi-même).
+- **Sync réseau** : reporté (option D non retenue par le client).
+- Bandeau utilisateur en pied de sidebar + bouton « Se déconnecter ».
+- 38 tests pytest OK (7 nouveaux — auth × 4, audit × 2, documents × 1) ;
+  Ruff 0 erreur ; smoke GUI Xvfb OK sur les 3 rôles.
+
+### Comptes seedés
+Voir `/app/memory/test_credentials.md`.
+
 ## Personas
 - Planificateur BOVO : importe les listings, suit le planning, exporte.
 

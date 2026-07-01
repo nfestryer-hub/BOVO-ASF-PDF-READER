@@ -1,8 +1,13 @@
 """Point d'entrée de BOVO Planning Manager.
 
-Lance le splash screen animé puis la fenêtre principale. Configure la
-journalisation, initialise la base SQLite et les paramètres, et garantit une
-fermeture propre.
+Séquence de démarrage :
+
+1. Splash animé (logo BOVO + « Développé par HENRI Dylan »).
+2. Écran de connexion (compte utilisateur local, bcrypt).
+3. Ouverture de la fenêtre principale avec droits filtrés selon le rôle.
+
+Configure la journalisation, initialise la base SQLite, seed les utilisateurs
+par défaut, garantit une fermeture propre.
 
 Exécution::
 
@@ -17,8 +22,10 @@ from pathlib import Path
 
 import customtkinter as ctk
 
+from app.audit import AuditService
+from app.auth import AuthService
 from app.database import Database
-from app.gui import BovoApp, SplashScreen
+from app.gui import BovoApp, LoginDialog, SplashScreen
 from app.logger import LogAction, configure_logging, log_action
 from app.settings import Settings
 from app.utils import (
@@ -38,15 +45,28 @@ def main() -> int:
 
     database = Database(DATABASE_DIR / "bovo.db")
     settings = Settings(database)
+    auth = AuthService(database)
+    audit = AuditService(database)
     log_action(database, LogAction.OPEN, "Ouverture de l'application.")
 
     ctk.set_appearance_mode(settings.theme)
     ctk.set_default_color_theme(settings.color_theme)
 
-    app = BovoApp(database, settings)
+    app = BovoApp(database, settings, auth=auth, audit=audit)
     app.protocol("WM_DELETE_WINDOW", app.on_close)
 
-    SplashScreen(app, on_finish=app.reveal)
+    def _after_login() -> None:
+        """Callback exécuté quand la connexion est validée."""
+        current = auth.current_user
+        if current is not None:
+            audit.bind_session(current.username, current.role.value)
+        app.on_authenticated()
+
+    def _show_login() -> None:
+        """Ouvre la fenêtre de connexion (bloquante)."""
+        LoginDialog(app, auth, on_success=_after_login, on_cancel=app.on_close)
+
+    SplashScreen(app, on_finish=_show_login)
 
     try:
         app.mainloop()
