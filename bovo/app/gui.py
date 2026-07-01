@@ -80,20 +80,20 @@ class LoginDialog(ctk.CTkToplevel):
         self._failed = 0
 
         self.title("Bovo ASF Manager — Connexion")
-        self.geometry("440x560")
+        self.geometry("440x620")
         self.resizable(False, False)
         self.configure(fg_color=SURFACE)
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.after(50, self._center)
         self.grab_set()
 
-        header = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0, height=110)
+        header = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0, height=170)
         header.pack(fill="x")
         header.pack_propagate(False)
         logo_path = ASSETS_DIR / "logo.png"
         if logo_path.exists():
-            image = ctk.CTkImage(Image.open(logo_path), size=(70, 70))
-            ctk.CTkLabel(header, image=image, text="").pack(pady=(20, 0))
+            image = ctk.CTkImage(Image.open(logo_path), size=(110, 110))
+            ctk.CTkLabel(header, image=image, text="").pack(pady=(14, 0))
         ctk.CTkLabel(
             header, text="Connexion", text_color="white",
             font=ctk.CTkFont(size=18, weight="bold"),
@@ -170,7 +170,7 @@ class LoginDialog(ctk.CTkToplevel):
     def _center(self) -> None:
         """Centre la fenêtre de connexion à l'écran."""
         self.update_idletasks()
-        w, h = 440, 520
+        w, h = 440, 620
         x = (self.winfo_screenwidth() - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -842,11 +842,11 @@ class BovoApp(ctk.CTk):
 
         logo_path = ASSETS_DIR / "logo.png"
         if logo_path.exists():
-            image = ctk.CTkImage(Image.open(logo_path), size=(150, 150))
-            ctk.CTkLabel(sidebar, image=image, text="").pack(pady=(24, 4))
+            image = ctk.CTkImage(Image.open(logo_path), size=(96, 96))
+            ctk.CTkLabel(sidebar, image=image, text="").pack(pady=(20, 4))
         ctk.CTkLabel(
-            sidebar, text="ASF Manager",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            sidebar, text="Bovo ASF Manager",
+            font=ctk.CTkFont(size=14, weight="bold"),
         ).pack(pady=(0, 12))
 
         # ------------------------------------------------------------------ #
@@ -890,13 +890,25 @@ class BovoApp(ctk.CTk):
         nav_container.pack(side="top", fill="both", expand=True, padx=6, pady=(0, 4))
 
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
+        self._nav_icons: dict[str, tuple[ctk.CTkImage, ctk.CTkImage]] = {}
         nav_items = self._nav_items_for_role()
-        for key, label in nav_items:
+        icons_dir = ASSETS_DIR / "icons"
+        for key, label, icon_name in nav_items:
+            # Charge les deux variantes (rouge = inactif, blanc = actif).
+            red_path = icons_dir / f"{icon_name}.png"
+            white_path = icons_dir / f"{icon_name}@white.png"
+            icon_red = ctk.CTkImage(Image.open(red_path), size=(20, 20)) \
+                if red_path.exists() else None
+            icon_white = ctk.CTkImage(Image.open(white_path), size=(20, 20)) \
+                if white_path.exists() else None
+            if icon_red and icon_white:
+                self._nav_icons[key] = (icon_red, icon_white)
             btn = ctk.CTkButton(
-                nav_container, text=label, anchor="w", height=42,
+                nav_container, text=f"  {label}", anchor="w", height=42,
                 fg_color="transparent", text_color=("black", "white"),
                 hover_color=ACCENT, corner_radius=8,
-                font=ctk.CTkFont(size=13),
+                font=ctk.CTkFont(size=13, weight="bold"),
+                image=icon_red, compound="left",
                 command=lambda k=key: self._show_view(k),
             )
             btn.pack(fill="x", padx=6, pady=3)
@@ -907,31 +919,36 @@ class BovoApp(ctk.CTk):
         self._content.grid_columnconfigure(0, weight=1)
         self._content.grid_rowconfigure(0, weight=1)
 
-    def _nav_items_for_role(self) -> list[tuple[str, str]]:
+    def _nav_items_for_role(self) -> list[tuple[str, str, str]]:
         """Retourne la liste des items de navigation autorisés au rôle courant.
+
+        Chaque item est un tuple ``(key, label, icon)`` où ``icon`` est le
+        nom d'un fichier PNG dans ``assets/icons/`` (sans extension). Les
+        icônes sont chargées en deux variantes (rouge + blanche) et
+        échangées selon l'état actif du bouton.
 
         Le Consultant n'accède pas au planning (Calendrier, Interventions,
         Importer PDF). Seul l'Admin voit « Utilisateurs ».
         """
-        items: list[tuple[str, str]] = [("accueil", "🏠  Accueil")]
+        items: list[tuple[str, str, str]] = [("accueil", "Accueil", "home")]
         if self._can("view_planning"):
             items += [
-                ("calendrier", "📅  Calendrier"),
-                ("interventions", "🔍  Interventions"),
+                ("calendrier", "Calendrier", "calendar"),
+                ("interventions", "Interventions", "search"),
             ]
         items += [
-            ("inspections", "🧰  Inspections ASF"),
-            ("documents", "📎  Documents"),
+            ("inspections", "Inspections ASF", "tools"),
+            ("documents", "Documents", "document"),
         ]
         if self._can("view_planning"):
-            items += [("import", "⬆️  Importer PDF")]
+            items += [("import", "Importer PDF", "upload")]
         if self._can("view_audit"):
-            items += [("historique", "🕒  Historique")]
+            items += [("historique", "Historique", "clock")]
         if self._can("manage_users"):
-            items += [("utilisateurs", "👥  Utilisateurs")]
+            items += [("utilisateurs", "Utilisateurs", "users")]
         items += [
-            ("journal", "📝  Journal"),
-            ("parametres", "⚙️  Paramètres"),
+            ("journal", "Journal", "journal"),
+            ("parametres", "Paramètres", "settings"),
         ]
         return items
 
@@ -968,11 +985,17 @@ class BovoApp(ctk.CTk):
         """Affiche la vue demandée et met en surbrillance l'onglet actif."""
         # Filtrage sécurité : si l'utilisateur n'a plus le droit d'accès, on
         # bascule sur « accueil ».
-        allowed = {k for k, _ in self._nav_items_for_role()}
+        allowed = {k for k, _, _ in self._nav_items_for_role()}
         if key not in allowed:
             key = "accueil"
         for nav_key, btn in self._nav_buttons.items():
-            btn.configure(fg_color=ACCENT if nav_key == key else "transparent")
+            is_active = nav_key == key
+            btn.configure(fg_color=ACCENT if is_active else "transparent")
+            # Change l'icône selon l'état (blanche sur fond rouge, rouge sinon).
+            icons = self._nav_icons.get(nav_key)
+            if icons is not None:
+                red_icon, white_icon = icons
+                btn.configure(image=white_icon if is_active else red_icon)
         self._clear_content()
         builder = {
             "accueil": self._view_accueil,
