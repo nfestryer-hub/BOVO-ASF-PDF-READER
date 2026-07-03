@@ -328,12 +328,14 @@ class InterventionDialog(ctk.CTkToplevel):
         master: ctk.CTk,
         intervention: Intervention,
         on_status_change: Callable[[Intervention, StatutIntervention], None],
+        on_delete: Callable[[Intervention], None] | None = None,
     ) -> None:
         super().__init__(master)
         self._iv = intervention
         self._on_status_change = on_status_change
+        self._on_delete = on_delete
         self.title(f"Ouvrage {intervention.ouvrage}")
-        self.geometry("520x620")
+        self.geometry("520x680")
         self.configure(fg_color=SURFACE)
         self.grab_set()
 
@@ -391,7 +393,42 @@ class InterventionDialog(ctk.CTkToplevel):
             self, text="📄  Ouvrir le PDF", fg_color=ACCENT,
             hover_color=ACCENT_HOVER, height=42,
             command=self._open_pdf,
-        ).pack(fill="x", padx=20, pady=(0, 16))
+        ).pack(fill="x", padx=20, pady=(0, 8))
+
+        # Bouton "Supprimer" — affiché uniquement si le callback est fourni
+        # (permet aux vues en lecture seule de masquer l'action).
+        if self._on_delete is not None:
+            ctk.CTkButton(
+                self, text="🗑️  Supprimer cette intervention",
+                fg_color="transparent", border_width=1,
+                text_color="#E63946", hover_color="#3A0F14",
+                border_color="#E63946", height=38,
+                command=self._delete_intervention,
+            ).pack(fill="x", padx=20, pady=(0, 16))
+        else:
+            # Espacement final équivalent quand le bouton n'est pas là.
+            ctk.CTkFrame(self, fg_color="transparent", height=8).pack()
+
+    def _delete_intervention(self) -> None:
+        """Confirme et délègue la suppression via le callback ``on_delete``."""
+        if not messagebox.askyesno(
+            "Supprimer l'intervention",
+            f"Supprimer définitivement l'intervention de l'ouvrage "
+            f"{self._iv.ouvrage} ?\n\n"
+            "Cette action est irréversible et retirera aussi l'entrée "
+            "du calendrier.",
+        ):
+            return
+        assert self._on_delete is not None
+        try:
+            self._on_delete(self._iv)
+        except Exception as exc:  # noqa: BLE001
+            messagebox.showerror(
+                "Suppression impossible",
+                f"Impossible de supprimer cette intervention :\n\n{exc}",
+            )
+            return
+        self.destroy()
 
     def _change_status(self, value: str) -> None:
         """Délègue le changement de statut au callback fourni."""
@@ -1800,9 +1837,53 @@ class BovoApp(ctk.CTk):
             label.pack(side="left", padx=6, pady=8)
             label.bind("<Button-1>", handler)
 
+        # Bouton corbeille (accès rapide) — visible pour les rôles avec droit d'édition.
+        if self._can("edit"):
+            def _quick_delete(_e: object = None, i: Intervention = iv) -> None:
+                if messagebox.askyesno(
+                    "Supprimer",
+                    f"Supprimer l'intervention {i.ouvrage} ({i.objet}) ?\n\n"
+                    "Cette action est irréversible.",
+                ):
+                    self._delete_intervention(i)
+            trash = ctk.CTkButton(
+                row, text="🗑", width=36, fg_color="transparent",
+                text_color=ACCENT, hover_color=CARD_BG,
+                command=_quick_delete,
+            )
+            trash.pack(side="right", padx=6)
+
     def _open_detail(self, iv: Intervention) -> None:
         """Ouvre la fiche détaillée d'une intervention."""
-        InterventionDialog(self, iv, self._on_status_change)
+        InterventionDialog(
+            self, iv, self._on_status_change,
+            on_delete=self._delete_intervention if self._can("edit") else None,
+        )
+
+    def _delete_intervention(self, iv: Intervention) -> None:
+        """Supprime définitivement une intervention (et son entrée calendrier).
+
+        Cette action passe par ``self._planner.delete(iv.id)`` qui appelle
+        l'API REST (mode connecté) ou la base SQLite locale. La table de
+        la vue Interventions est rafraîchie ensuite.
+        """
+        if iv.id is None:
+            return
+        try:
+            self._planner.delete(iv.id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Échec suppression intervention #%s", iv.id)
+            messagebox.showerror(
+                "Suppression impossible",
+                f"Impossible de supprimer l'intervention :\n\n{exc}",
+            )
+            return
+        # Rafraîchit la vue courante si elle affiche des interventions.
+        current = getattr(self, "_current_view", None)
+        if current == "interventions" and hasattr(self, "_table"):
+            self._refresh_table()
+        elif current in ("calendrier", "accueil"):
+            self._show_view(current)
 
     def _on_status_change(
         self, iv: Intervention, statut: StatutIntervention
@@ -2199,10 +2280,40 @@ class BovoApp(ctk.CTk):
             ).pack(side="right", padx=6)
 
     def _delete_module_row(self, sheet: str, row_id: int) -> None:
-        """Supprime une ligne de module après confirmation."""
-        if messagebox.askyesno("Suppression", "Supprimer cette entrée ?"):
+        """Supprime une ligne de module après confirmation.
+
+        Les erreurs API sont désormais **surfacées** dans une boîte de
+        dialogue au lieu d'être silencieuses — c'était la cause du
+        symptôme « je clique sur la corbeille et rien ne se passe ».
+        """
+        label = self._inspections.sheet_label(sheet)
+        if not messagebox.askyesno(
+            "Supprimer",
+            f"Supprimer définitivement cette entrée dans « {label} » ?\n\n"
+            "Cette action est irréversible.",
+        ):
+            return
+        try:
             self._inspections.delete_row(sheet, row_id)
-            self._refresh_module(sheet)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Échec suppression %s #%s", sheet, row_id)
+            messagebox.showerror(
+                "Suppression impossible",
+                f"Impossible de supprimer cette entrée :\n\n{exc}\n\n"
+                "Vérifiez votre connexion au serveur ou vos droits d'accès.",
+            )
+            return
+        self._refresh_module(sheet)
+        # Le journal d'import est spécifique à la vue Accueil ; on l'alimente
+        # seulement s'il existe (évite un AttributeError si l'utilisateur
+        # supprime depuis la vue Inspections).
+        if getattr(self, "_import_log", None) is not None:
+            try:
+                self._append_import_log(
+                    f"🗑️  Entrée supprimée dans {label} (#{row_id})",
+                )
+            except Exception:  # noqa: BLE001 - journal purement décoratif
+                pass
 
     def _open_row_form(self, sheet: str, row_id: int | None) -> None:
         """Ouvre le formulaire d'ajout/édition d'une ligne de module."""
