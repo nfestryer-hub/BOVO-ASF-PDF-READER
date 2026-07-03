@@ -12,6 +12,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import unicodedata
 from datetime import date, datetime
 from pathlib import Path
@@ -22,9 +23,81 @@ logger = get_logger("utils")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATABASE_DIR = PROJECT_ROOT / "database"
-ASSETS_DIR = PROJECT_ROOT / "assets"
 LOGS_DIR = PROJECT_ROOT / "logs"
 EXPORT_DIR = PROJECT_ROOT / "exports"
+
+
+def _executable_dir() -> Path:
+    """Retourne le dossier de l'exécutable / du script principal.
+
+    Sous PyInstaller (mode ``--onefile``), ``sys.executable`` pointe vers le
+    binaire déballé côté utilisateur. En mode développement, on retourne la
+    racine du projet.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return PROJECT_ROOT
+
+
+def _bundle_dir() -> Path:
+    """Retourne le dossier des ressources embarquées par PyInstaller.
+
+    En mode ``--onefile``, PyInstaller extrait les données dans un dossier
+    temporaire exposé via ``sys._MEIPASS``. En mode ``--onedir``, il s'agit
+    du dossier ``_internal`` à côté du binaire.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass)
+    return PROJECT_ROOT
+
+
+def resource_path(*parts: str | Path) -> Path:
+    """Retourne le chemin absolu d'une ressource (asset) — override friendly.
+
+    Recherche dans l'ordre :
+
+    1. **Dossier utilisateur** : ``<exe>/assets/<parts>`` — priorité maximale
+       pour permettre à l'utilisateur de remplacer ``logo.png`` ou
+       ``app.ico`` **sans recompiler** (il suffit de déposer le nouveau
+       fichier à côté de l'exécutable).
+    2. **Bundle PyInstaller** : ``<_MEIPASS>/assets/<parts>`` — la valeur
+       par défaut embarquée dans l'exe.
+    3. **Racine projet** : ``<project>/assets/<parts>`` — pour le mode dev.
+
+    Le premier chemin existant est retourné. Si aucun n'existe, le premier
+    chemin (utilisateur) est renvoyé quand même — le code appelant décidera
+    du fallback (par ex. logo textuel).
+    """
+    candidates = [
+        _executable_dir() / "assets" / Path(*parts),
+        _bundle_dir() / "assets" / Path(*parts),
+        PROJECT_ROOT / "assets" / Path(*parts),
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+# ------------------------------------------------------------------ #
+# Emplacements historiquement exposés — préservés pour compatibilité.
+# ------------------------------------------------------------------ #
+
+#: Dossier des ressources visuelles (icônes, logo, icône Windows).
+#:
+#: En mode installé (exe PyInstaller), pointe vers le dossier ``assets``
+#: à côté du binaire — l'utilisateur peut y déposer sa propre version de
+#: ``logo.png`` et ``app.ico`` sans recompiler. En mode développement,
+#: pointe vers ``<projet>/assets``.
+ASSETS_DIR = _executable_dir() / "assets"
+if not ASSETS_DIR.exists():
+    # Fallback : ressources embarquées par PyInstaller (--onefile).
+    _bundled = _bundle_dir() / "assets"
+    if _bundled.exists():
+        ASSETS_DIR = _bundled
+    else:
+        ASSETS_DIR = PROJECT_ROOT / "assets"
 
 
 def get_system_username() -> str:
