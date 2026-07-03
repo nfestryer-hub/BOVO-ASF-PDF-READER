@@ -1269,7 +1269,9 @@ class BovoApp(ctk.CTk):
         session = self._auth.session
         return {
             "edit": session.can_edit(),
+            "edit_inspections": session.can_edit_inspections(),
             "view_planning": session.can_view_planning(),
+            "import_pdf": session.can_import_pdf(),
             "manage_users": session.can_manage_users(),
             "view_audit": session.can_view_audit(),
         }.get(action, False)
@@ -1449,14 +1451,17 @@ class BovoApp(ctk.CTk):
             ("inspections", "Inspections ASF", "tools"),
             ("documents", "Documents", "document"),
         ]
-        if self._can("view_planning"):
+        if self._can("import_pdf"):
             items += [("import", "Importer PDF", "upload")]
         if self._can("view_audit"):
             items += [("historique", "Historique", "clock")]
         if self._can("manage_users"):
             items += [("utilisateurs", "Utilisateurs", "users")]
+        # Journal accessible seulement aux rôles avec droit d'audit
+        # (masqué pour Planificateur et Inspecteur ITV depuis la V1.2).
+        if self._can("view_audit"):
+            items += [("journal", "Journal", "journal")]
         items += [
-            ("journal", "Journal", "journal"),
             ("parametres", "Paramètres", "settings"),
         ]
         return items
@@ -1776,8 +1781,30 @@ class BovoApp(ctk.CTk):
                 text_color=("black", "white"), hover_color=ACCENT,
                 command=lambda f=fmt: self._export(f),
             ).pack(side="left", padx=4)
+        # Fiche par intervention — imprimable, 1 page par intervention.
+        ctk.CTkButton(
+            exports, text="🖨️  Fiches planning (imprimable)", width=220,
+            fg_color="#457B9D", hover_color="#35617D",
+            command=self._export_intervention_fiches,
+        ).pack(side="left", padx=(20, 4))
+        # Suppression multiple des interventions cochées.
+        if self._can("edit"):
+            self._iv_selection_label = ctk.CTkLabel(
+                exports, text="", text_color="#9AA0A6",
+                font=ctk.CTkFont(size=11, weight="bold"),
+            )
+            self._iv_selection_label.pack(side="right", padx=8)
+            ctk.CTkButton(
+                exports, text="🗑️  Supprimer sélection", width=170,
+                fg_color="#3A0F14", hover_color="#5C161C",
+                text_color="#FF6B6B", border_width=1, border_color=ACCENT,
+                command=self._delete_selected_interventions,
+            ).pack(side="right", padx=4)
         self._count_label = ctk.CTkLabel(exports, text="", text_color="#9A9AA0")
-        self._count_label.pack(side="right")
+        self._count_label.pack(side="right", padx=8)
+
+        # État des cases à cocher pour la suppression multiple.
+        self._iv_selection: dict[int, ctk.BooleanVar] = {}
 
         self._table = ctk.CTkScrollableFrame(frame, fg_color="transparent")
         self._table.grid(row=2, column=0, sticky="nsew")
@@ -1815,8 +1842,23 @@ class BovoApp(ctk.CTk):
 
     def _table_row(self, iv: Intervention, widths: list[int]) -> None:
         """Construit une ligne cliquable de la table des interventions."""
-        row = ctk.CTkFrame(self._table, fg_color=SURFACE, height=40, corner_radius=8)
+        row = ctk.CTkFrame(self._table, fg_color=SURFACE, height=42, corner_radius=8)
         row.pack(fill="x", pady=2)
+        can_edit = self._can("edit")
+
+        # Case à cocher pour la suppression multiple (V1.2).
+        if can_edit and iv.id is not None:
+            var = self._iv_selection.get(iv.id)
+            if var is None:
+                var = ctk.BooleanVar(value=False)
+                self._iv_selection[iv.id] = var
+            ctk.CTkCheckBox(
+                row, text="", variable=var, width=32,
+                checkbox_width=20, checkbox_height=20,
+                fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                command=self._refresh_iv_selection_counter,
+            ).pack(side="left", padx=(10, 4), pady=8)
+
         dates = (
             f"{format_date_fr(iv.date_debut)} → {format_date_fr(iv.date_fin)}"
             if iv.date_debut else "—"
@@ -1838,7 +1880,7 @@ class BovoApp(ctk.CTk):
             label.bind("<Button-1>", handler)
 
         # Bouton corbeille (accès rapide) — visible pour les rôles avec droit d'édition.
-        if self._can("edit"):
+        if can_edit:
             def _quick_delete(_e: object = None, i: Intervention = iv) -> None:
                 if messagebox.askyesno(
                     "Supprimer",
@@ -1847,11 +1889,93 @@ class BovoApp(ctk.CTk):
                 ):
                     self._delete_intervention(i)
             trash = ctk.CTkButton(
-                row, text="🗑", width=36, fg_color="transparent",
-                text_color=ACCENT, hover_color=CARD_BG,
+                row, text="🗑", width=44, height=32,
+                fg_color="#3A0F14", text_color="#FF6B6B",
+                hover_color=ACCENT, border_width=1, border_color=ACCENT,
                 command=_quick_delete,
             )
-            trash.pack(side="right", padx=6)
+            trash.pack(side="right", padx=(4, 10))
+
+    def _refresh_iv_selection_counter(self) -> None:
+        """Met à jour l'étiquette « N sélectionné(s) » de la vue Interventions."""
+        if not hasattr(self, "_iv_selection_label"):
+            return
+        count = sum(1 for v in self._iv_selection.values() if v.get())
+        self._iv_selection_label.configure(
+            text=f"✓ {count} sélectionné(s)" if count else "",
+            text_color="#FF6B6B" if count else "#9AA0A6",
+        )
+
+    def _delete_selected_interventions(self) -> None:
+        """Supprime toutes les interventions cochées après confirmation."""
+        ids = [iid for iid, var in self._iv_selection.items() if var.get()]
+        if not ids:
+            messagebox.showinfo(
+                "Aucune sélection",
+                "Cochez d'abord les interventions à supprimer, puis relancez l'action.",
+            )
+            return
+        if not messagebox.askyesno(
+            "Suppression multiple",
+            f"Supprimer définitivement les {len(ids)} interventions "
+            "sélectionnées ?\n\n"
+            "Cette action est irréversible et retire aussi leurs entrées "
+            "du calendrier.",
+        ):
+            return
+        ok, errors = 0, []
+        for iid in ids:
+            try:
+                self._planner.delete(iid)
+                ok += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Échec suppression intervention #%s", iid)
+                errors.append(f"#{iid}: {exc}")
+        self._iv_selection = {}
+        self._refresh_table()
+        self._refresh_iv_selection_counter()
+        msg = f"✅ {ok} intervention(s) supprimée(s)."
+        if errors:
+            msg += f"\n\n⚠️ {len(errors)} erreur(s) :\n" + "\n".join(errors[:10])
+            messagebox.showwarning("Suppression partielle", msg)
+        else:
+            messagebox.showinfo("Suppression terminée", msg)
+
+    def _export_intervention_fiches(self) -> None:
+        """Exporte une fiche PDF imprimable par intervention (1 page = 1 fiche)."""
+        interventions = self._planner.list_all(**self._current_filters())
+        if not interventions:
+            messagebox.showinfo(
+                "Aucune intervention",
+                "La liste filtrée est vide — aucune fiche à générer.",
+            )
+            return
+        path = filedialog.asksaveasfilename(
+            title="Exporter les fiches d'intervention (imprimable)",
+            initialdir=str(self._settings.export_folder),
+            defaultextension=".pdf",
+            initialfile="fiches_planning.pdf",
+            filetypes=[("PDF", "*.pdf")],
+        )
+        if not path:
+            return
+        try:
+            from app.exporter import Exporter
+            exporter = Exporter(database=None)
+            exporter.interventions_fiches_pdf(
+                interventions, Path(path),
+                planificateur=self._current_username(),
+            )
+            messagebox.showinfo(
+                "Fiches générées",
+                f"✅ {len(interventions)} fiche(s) générée(s) :\n\n{path}\n\n"
+                "Chaque intervention occupe une page A4 pour impression.",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Échec export fiches PDF")
+            messagebox.showerror(
+                "Export impossible", f"Impossible de générer les fiches :\n\n{exc}",
+            )
 
     def _open_detail(self, iv: Intervention) -> None:
         """Ouvre la fiche détaillée d'une intervention."""
@@ -2088,7 +2212,7 @@ class BovoApp(ctk.CTk):
             text="Mise en page conforme au formulaire ASF « Visites assainissement V2026-06-01 »",
             text_color="#8A8A90", font=ctk.CTkFont(size=12),
         ).pack(anchor="w")
-        if self._can("edit"):
+        if self._can("edit_inspections"):
             ctk.CTkButton(
                 header, text="📊  Importer le classeur Excel", fg_color="#43AA8B",
                 hover_color="#369072", height=40,
@@ -2127,6 +2251,11 @@ class BovoApp(ctk.CTk):
 
         self._insp_search: dict[str, ctk.StringVar] = {}
         self._insp_tables: dict[str, ctk.CTkScrollableFrame] = {}
+        #: État des cases à cocher pour la suppression multiple.
+        #: ``{sheet: {row_id: BooleanVar}}``
+        self._insp_selection: dict[str, dict[int, ctk.BooleanVar]] = {}
+        #: Labels du compteur de sélection dans la barre d'outils.
+        self._insp_selection_labels: dict[str, ctk.CTkLabel] = {}
         for sheet in self._inspections.SHEETS:
             tab = tabview.add(self._inspections.sheet_label(sheet))
             tab.grid_columnconfigure(0, weight=1)
@@ -2135,7 +2264,13 @@ class BovoApp(ctk.CTk):
             self._refresh_module(sheet)
 
     def _build_module_tab(self, parent: ctk.CTkBaseClass, sheet: str) -> None:
-        """Construit la barre d'outils et la table d'un module ASF."""
+        """Construit la barre d'outils et la table d'un module ASF.
+
+        La table utilise un :class:`ctk.CTkScrollableFrame` avec ascenseur
+        vertical **et** horizontal (V1.2). Ceci permet d'accéder à toutes
+        les colonnes et à la corbeille de chaque ligne même si la fenêtre
+        est étroite ou l'écran petit.
+        """
         toolbar = ctk.CTkFrame(parent, fg_color="transparent")
         toolbar.grid(row=0, column=0, sticky="ew", pady=8)
         search_var = ctk.StringVar()
@@ -2150,16 +2285,81 @@ class BovoApp(ctk.CTk):
             hover_color="#35617D",
             command=lambda sh=sheet: self._export_module_pdf(sh),
         ).pack(side="right", padx=4)
-        if self._can("edit"):
+        if self._can("edit_inspections"):
+            # Compteur de sélection multiple (« 3 sélectionné(s) »).
+            sel_lbl = ctk.CTkLabel(
+                toolbar, text="", text_color="#9AA0A6",
+                font=ctk.CTkFont(size=11, weight="bold"),
+            )
+            sel_lbl.pack(side="right", padx=(4, 8))
+            self._insp_selection_labels[sheet] = sel_lbl
+            ctk.CTkButton(
+                toolbar, text="🗑️  Supprimer sélection", width=170,
+                fg_color="#3A0F14", hover_color="#5C161C",
+                text_color="#FF6B6B", border_width=1, border_color=ACCENT,
+                command=lambda sh=sheet: self._delete_selected_module_rows(sh),
+            ).pack(side="right", padx=4)
             ctk.CTkButton(
                 toolbar, text="➕  Ajouter", width=120, fg_color=ACCENT,
                 hover_color=ACCENT_HOVER,
                 command=lambda sh=sheet: self._open_row_form(sh, None),
             ).pack(side="right", padx=4)
 
-        table = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        # ScrollableFrame vertical (le contenu s'adapte à la largeur).
+        table = ctk.CTkScrollableFrame(
+            parent, fg_color="transparent",
+            orientation="vertical",
+        )
         table.grid(row=1, column=0, sticky="nsew")
         self._insp_tables[sheet] = table
+
+    def _refresh_selection_counter(self, sheet: str) -> None:
+        """Met à jour le compteur « N sélectionné(s) » de la toolbar."""
+        selection = self._insp_selection.get(sheet, {})
+        count = sum(1 for v in selection.values() if v.get())
+        lbl = self._insp_selection_labels.get(sheet)
+        if lbl is not None:
+            lbl.configure(
+                text=f"✓ {count} sélectionné(s)" if count else "",
+                text_color="#FF6B6B" if count else "#9AA0A6",
+            )
+
+    def _delete_selected_module_rows(self, sheet: str) -> None:
+        """Supprime toutes les lignes cochées du module."""
+        selection = self._insp_selection.get(sheet, {})
+        ids_to_delete = [rid for rid, var in selection.items() if var.get()]
+        if not ids_to_delete:
+            messagebox.showinfo(
+                "Aucune sélection",
+                "Cochez d'abord les lignes à supprimer, puis relancez l'action.",
+            )
+            return
+        label = self._inspections.sheet_label(sheet)
+        if not messagebox.askyesno(
+            "Suppression multiple",
+            f"Supprimer définitivement les {len(ids_to_delete)} lignes "
+            f"sélectionnées dans « {label} » ?\n\n"
+            "Cette action est irréversible.",
+        ):
+            return
+        ok, errors = 0, []
+        for rid in ids_to_delete:
+            try:
+                self._inspections.delete_row(sheet, rid)
+                ok += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Échec suppression %s #%s", sheet, rid)
+                errors.append(f"#{rid}: {exc}")
+        # Purge la sélection.
+        self._insp_selection[sheet] = {}
+        self._refresh_module(sheet)
+        self._refresh_selection_counter(sheet)
+        msg = f"✅ {ok} ligne(s) supprimée(s) dans « {label} »."
+        if errors:
+            msg += f"\n\n⚠️ {len(errors)} erreur(s) :\n" + "\n".join(errors[:10])
+            messagebox.showwarning("Suppression partielle", msg)
+        else:
+            messagebox.showinfo("Suppression terminée", msg)
 
     def _export_module_pdf(self, sheet: str) -> None:
         """Exporte un module ASF au format PDF tableur (paysage)."""
@@ -2229,15 +2429,36 @@ class BovoApp(ctk.CTk):
     def _module_row(
         self, sheet: str, row: dict[str, str], columns: list[tuple[str, str]]
     ) -> None:
-        """Construit une ligne de table de module (éditable + suppression)."""
+        """Construit une ligne de table de module.
+
+        Depuis V1.2 chaque ligne dispose d'une **case à cocher** en début
+        de rangée pour permettre la suppression multiple (voir la barre
+        d'outils du module).
+        """
         container = ctk.CTkFrame(
             self._insp_tables[sheet], fg_color=SURFACE, height=44, corner_radius=8,
             border_width=0,
         )
         container.pack(fill="x", pady=3)
         row_id = int(row["id"])
+        can_edit = self._can("edit_inspections")
         handler = lambda _e=None, sh=sheet, rid=row_id: self._open_row_form(sh, rid)  # noqa: E731
-        if self._can("edit"):
+
+        # Case à cocher (multi-sélection pour suppression groupée).
+        if can_edit:
+            selection = self._insp_selection.setdefault(sheet, {})
+            var = selection.get(row_id)
+            if var is None:
+                var = ctk.BooleanVar(value=False)
+                selection[row_id] = var
+            ctk.CTkCheckBox(
+                container, text="", variable=var, width=32,
+                checkbox_width=20, checkbox_height=20,
+                fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                command=lambda sh=sheet: self._refresh_selection_counter(sh),
+            ).pack(side="left", padx=(10, 4), pady=8)
+
+        if can_edit:
             container.bind("<Button-1>", handler)
         # Couleurs par statut / urgence / etat_cunettes (badges lisibles).
         _STATUS_COLORS = {
@@ -2262,7 +2483,7 @@ class BovoApp(ctk.CTk):
                     font=ctk.CTkFont(size=11, weight="bold"),
                 )
                 badge.pack(side="left", padx=6, pady=8)
-                if self._can("edit"):
+                if can_edit:
                     badge.bind("<Button-1>", handler)
                 continue
             label = ctk.CTkLabel(
@@ -2270,14 +2491,15 @@ class BovoApp(ctk.CTk):
                 font=ctk.CTkFont(size=12),
             )
             label.pack(side="left", padx=6, pady=8)
-            if self._can("edit"):
+            if can_edit:
                 label.bind("<Button-1>", handler)
-        if self._can("edit"):
+        if can_edit:
             ctk.CTkButton(
-                container, text="🗑", width=36, fg_color="transparent",
-                text_color=ACCENT, hover_color=CARD_BG,
+                container, text="🗑", width=44, height=32,
+                fg_color="#3A0F14", text_color="#FF6B6B",
+                hover_color=ACCENT, border_width=1, border_color=ACCENT,
                 command=lambda sh=sheet, rid=row_id: self._delete_module_row(sh, rid),
-            ).pack(side="right", padx=6)
+            ).pack(side="right", padx=(4, 10))
 
     def _delete_module_row(self, sheet: str, row_id: int) -> None:
         """Supprime une ligne de module après confirmation.
@@ -2812,18 +3034,55 @@ class BovoApp(ctk.CTk):
             folders, text="Emplacements",
             font=ctk.CTkFont(size=15, weight="bold"),
         ).pack(anchor="w", padx=20, pady=(16, 6))
+
+        # Ligne dossier PDF (lecture seule).
         ctk.CTkLabel(
-            folders, text=f"📁  Dossier PDF : {self._settings.pdf_folder}",
+            folders, text=f"📁  Dossier PDF importés : {self._settings.pdf_folder}",
             anchor="w", text_color="#B7B8BE",
         ).pack(anchor="w", padx=20)
-        ctk.CTkLabel(
-            folders, text=f"📤  Dossier export : {self._settings.export_folder}",
+
+        # Ligne dossier d'export (modifiable).
+        export_row = ctk.CTkFrame(folders, fg_color="transparent")
+        export_row.pack(anchor="w", padx=20, pady=(6, 6), fill="x")
+        self._export_folder_label = ctk.CTkLabel(
+            export_row,
+            text=f"📤  Dossier d'export : {self._settings.export_folder}",
             anchor="w", text_color="#B7B8BE",
-        ).pack(anchor="w", padx=20, pady=(4, 0))
+        )
+        self._export_folder_label.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(
+            export_row, text="Modifier…", width=110, height=32,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=self._change_export_folder,
+        ).pack(side="right", padx=(8, 0))
+
         ctk.CTkLabel(
             folders, text=f"🗄️  Base de données : {self._db.path}",
             anchor="w", text_color="#B7B8BE",
         ).pack(anchor="w", padx=20, pady=(4, 16))
+
+    def _change_export_folder(self) -> None:
+        """Ouvre un file-picker pour choisir un nouveau dossier d'export."""
+        current = str(self._settings.export_folder)
+        chosen = filedialog.askdirectory(
+            title="Choisir le dossier d'export par défaut",
+            initialdir=current if Path(current).exists() else str(Path.home()),
+            mustexist=True,
+        )
+        if not chosen:
+            return
+        # Persiste dans les settings (mirroré JSON + SQLite).
+        self._settings.set("export_folder", chosen)
+        # Rafraîchit l'affichage.
+        if hasattr(self, "_export_folder_label"):
+            self._export_folder_label.configure(
+                text=f"📤  Dossier d'export : {chosen}",
+            )
+        messagebox.showinfo(
+            "Dossier d'export mis à jour",
+            f"Les futurs exports (Excel, PDF, CSV, JSON, fiches planning) "
+            f"utiliseront ce dossier par défaut :\n\n{chosen}",
+        )
 
     def _reconfigure_server(self) -> None:
         """Ouvre le dialogue de configuration du serveur (depuis Paramètres)."""

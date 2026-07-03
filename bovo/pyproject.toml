@@ -1,6 +1,6 @@
 [project]
 name = "bovo-planning-manager"
-version = "1.0.0"
+version = "1.2.0"
 description = "Logiciel professionnel de gestion des interventions ASF — BOVO Planning Manager."
 authors = [{ name = "HENRI Dylan" }]
 requires-python = ">=3.12"

@@ -614,3 +614,258 @@ class Exporter:
             f"Export ASF (rapports) : {destination.name} — {len(rapports)} rapport(s)",
         )
         return destination
+
+    # ------------------------------------------------------------------ #
+    # Fiches d'intervention imprimables — une page A4 portrait / intervention
+    # ------------------------------------------------------------------ #
+    def interventions_fiches_pdf(
+        self,
+        interventions: list[Intervention],
+        destination: Path,
+        *,
+        planificateur: str = "",
+    ) -> Path:
+        """Génère un PDF **1 fiche = 1 page A4 portrait** par intervention.
+
+        Layout pensé pour l'impression papier du planning terrain :
+
+            ┌──────────────────────────────────────────┐
+            │   BOVO ASF MANAGER — Fiche d'intervention│
+            ├──────────────────────────────────────────┤
+            │   [🌞 JOUR]  ou  [🌙 NUIT]  (couleur)    │
+            │                                          │
+            │   AUTOROUTE                              │
+            │        A62                               │
+            │   IDENTIFIANT                            │
+            │        43854                             │
+            │   DATE                                   │
+            │        Lundi 22 juin 2026                │
+            ├──────────────────────────────────────────┤
+            │   Objet, PR, Sens, Type, Longueur…       │
+            ├──────────────────────────────────────────┤
+            │   Planificateur : Dylan HENRI            │
+            │   Édité le 03/07/2026                    │
+            └──────────────────────────────────────────┘
+
+        Args:
+            interventions: Liste à imprimer (1 fiche par élément).
+            destination: Chemin du PDF cible.
+            planificateur: Nom du planificateur (affiché en pied de page).
+
+        Returns:
+            Le chemin du PDF généré.
+        """
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        document = fitz.open()
+        # A4 portrait : 595 × 842 pt (72 dpi).
+        page_w, page_h = 595.0, 842.0
+        margin = 50.0
+        inner_w = page_w - 2 * margin
+
+        _WEEKDAYS_FR = (
+            "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi",
+            "Samedi", "Dimanche",
+        )
+        _MONTHS_FR = (
+            "janvier", "février", "mars", "avril", "mai", "juin",
+            "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+        )
+
+        # Le font helvetica de PyMuPDF (Base-14 PDF) supporte seulement
+        # l'ASCII + Latin-1. Les tirets em/en et flèches Unicode ne
+        # s'affichent pas — on les remplace par des équivalents ASCII.
+        _CHAR_MAP = str.maketrans({
+            "—": "-", "–": "-", "→": "->", "←": "<-",
+            "•": "*", "…": "...", "«": '"', "»": '"',
+        })
+
+        def _safe(text: str) -> str:
+            """Nettoie un texte utilisateur pour un rendu PDF fiable."""
+            return (text or "").translate(_CHAR_MAP)
+
+        def _pretty_date(d: date | None) -> str:
+            if d is None:
+                return "— À planifier —"
+            return f"{_WEEKDAYS_FR[d.weekday()]} {d.day} {_MONTHS_FR[d.month - 1]} {d.year}"
+
+        def _is_night(iv: Intervention) -> bool:
+            """Détecte le mode Nuit via ``jour_nuit`` (si présent) ou ``commentaire``."""
+            for source in (
+                getattr(iv, "jour_nuit", ""), getattr(iv, "commentaire", ""),
+                getattr(iv, "objet", ""),
+            ):
+                text = (source or "").lower()
+                if "nuit" in text:
+                    return True
+            return False
+
+        edit_date = format_date_fr(date.today()) or ""
+
+        for iv in interventions:
+            page = document.new_page(width=page_w, height=page_h)
+            night = _is_night(iv)
+
+            # --- Bandeau supérieur : logo textuel + version --- #
+            page.draw_rect(
+                fitz.Rect(0, 0, page_w, 40),
+                color=(0.902, 0.224, 0.275),
+                fill=(0.902, 0.224, 0.275),
+            )
+            page.insert_textbox(
+                fitz.Rect(margin, 8, page_w - margin, 34),
+                "BOVO ASF MANAGER  ·  FICHE D'INTERVENTION",
+                fontsize=13, color=(1, 1, 1), fontname="hebo",
+                align=fitz.TEXT_ALIGN_LEFT,
+            )
+            page.insert_textbox(
+                fitz.Rect(margin, 8, page_w - margin, 34),
+                "V1.2", fontsize=12, color=(1, 1, 1), fontname="hebo",
+                align=fitz.TEXT_ALIGN_RIGHT,
+            )
+
+            # --- Badge Jour/Nuit géant --- #
+            badge_color = (0.05, 0.10, 0.30) if night else (0.98, 0.75, 0.14)
+            badge_text_color = (1, 1, 1) if night else (0.1, 0.1, 0.1)
+            badge_label = "NUIT" if night else "JOUR"
+            badge_rect = fitz.Rect(margin, 65, page_w - margin, 130)
+            page.draw_rect(badge_rect, color=badge_color, fill=badge_color)
+            page.insert_textbox(
+                badge_rect, badge_label, fontsize=32,
+                color=badge_text_color, fontname="hebo",
+                align=fitz.TEXT_ALIGN_CENTER,
+            )
+
+            # --- 3 blocs vedettes : Autoroute + Identifiant + Date --- #
+            y = 155
+            block_w = (inner_w - 20) / 3  # espace pour 3 blocs + 2 séparateurs
+            fields = [
+                ("AUTOROUTE", _safe(iv.autoroute) or "—", (0.90, 0.22, 0.27)),
+                ("IDENTIFIANT", _safe(iv.ouvrage) or "—", (0.27, 0.48, 0.62)),
+                ("DATE", _pretty_date(iv.date_debut), (0.16, 0.62, 0.56)),
+            ]
+            for i, (label, value, color) in enumerate(fields):
+                x = margin + i * (block_w + 10)
+                # Barre de couleur au-dessus
+                page.draw_rect(
+                    fitz.Rect(x, y, x + block_w, y + 5),
+                    color=color, fill=color,
+                )
+                # Label
+                page.insert_textbox(
+                    fitz.Rect(x, y + 10, x + block_w, y + 26),
+                    label, fontsize=9, color=(0.5, 0.5, 0.5), fontname="hebo",
+                    align=fitz.TEXT_ALIGN_CENTER,
+                )
+                # Valeur (grand)
+                page.insert_textbox(
+                    fitz.Rect(x, y + 28, x + block_w, y + 78),
+                    str(value), fontsize=20 if label != "DATE" else 13,
+                    color=(0.05, 0.05, 0.05), fontname="hebo",
+                    align=fitz.TEXT_ALIGN_CENTER,
+                )
+
+            # --- Bloc détails --- #
+            y = 265
+            page.insert_text(
+                (margin, y),
+                "DÉTAILS DE L'INTERVENTION",
+                fontsize=11, color=(0.5, 0.5, 0.5), fontname="hebo",
+            )
+            y += 8
+            page.draw_line(
+                (margin, y), (page_w - margin, y),
+                color=(0.85, 0.85, 0.85), width=0.5,
+            )
+            y += 18
+
+            def _detail_row(label: str, value: str) -> float:
+                nonlocal y
+                page.insert_textbox(
+                    fitz.Rect(margin, y, margin + 160, y + 20),
+                    label, fontsize=10, color=(0.5, 0.5, 0.5), fontname="hebo",
+                    align=fitz.TEXT_ALIGN_LEFT,
+                )
+                page.insert_textbox(
+                    fitz.Rect(margin + 165, y, page_w - margin, y + 40),
+                    str(value or "—"), fontsize=12,
+                    color=(0.05, 0.05, 0.05), fontname="helv",
+                    align=fitz.TEXT_ALIGN_LEFT,
+                )
+                y += 26
+                return y
+
+            _detail_row("Objet", _safe(iv.objet))
+            _detail_row("Secteur", _safe(iv.autoroute)
+                        + (f" · {_safe(iv.secteur)}" if iv.secteur else ""))
+            pr_str = f"{iv.pr_debut or '—'}   ->   {iv.pr_fin or '—'}"
+            _detail_row("Point kilométrique (PR)", pr_str)
+            _detail_row("Sens de circulation", _safe(iv.sens))
+            _detail_row("Type d'ouvrage", _safe(iv.type_ouvrage))
+            if iv.longueur:
+                _detail_row("Longueur", f"{iv.longueur} m")
+            if iv.diametre:
+                _detail_row("Diamètre", f"{iv.diametre} mm")
+            _detail_row("Date de fin",
+                        format_date_fr(iv.date_fin) or "—")
+            _detail_row("Statut actuel", iv.statut.value)
+
+            if iv.commentaire:
+                y += 8
+                page.insert_text(
+                    (margin, y),
+                    "OBSERVATIONS / COMMENTAIRES",
+                    fontsize=11, color=(0.5, 0.5, 0.5), fontname="hebo",
+                )
+                y += 8
+                page.draw_line(
+                    (margin, y), (page_w - margin, y),
+                    color=(0.85, 0.85, 0.85), width=0.5,
+                )
+                y += 12
+                page.insert_textbox(
+                    fitz.Rect(margin, y, page_w - margin, y + 100),
+                    _safe(iv.commentaire), fontsize=11,
+                    color=(0.15, 0.15, 0.15), fontname="helv",
+                )
+
+            # --- Zone signature planificateur (bas de page) --- #
+            sig_y = page_h - 130
+            page.draw_line(
+                (margin, sig_y), (page_w - margin, sig_y),
+                color=(0.85, 0.85, 0.85), width=0.5,
+            )
+            page.insert_textbox(
+                fitz.Rect(margin, sig_y + 8, page_w - margin, sig_y + 26),
+                f"PLANIFICATEUR : {planificateur or '—'}",
+                fontsize=10, color=(0.5, 0.5, 0.5), fontname="hebo",
+            )
+            # Case à cocher confirmation.
+            box_x = margin + 220
+            page.draw_rect(
+                fitz.Rect(box_x, sig_y + 40, box_x + 16, sig_y + 56),
+                color=(0.3, 0.3, 0.3), fill=(1, 1, 1), width=0.8,
+            )
+            page.insert_text(
+                (box_x + 24, sig_y + 53),
+                "Intervention réalisée",
+                fontsize=11, color=(0.15, 0.15, 0.15), fontname="helv",
+            )
+
+            # --- Pied de page --- #
+            page.insert_textbox(
+                fitz.Rect(margin, page_h - 30, page_w - margin, page_h - 15),
+                f"Édité le {edit_date}  ·  Bovo ASF Manager v1.2  "
+                "·  Développé par HENRI Dylan",
+                fontsize=8, color=(0.55, 0.55, 0.55), fontname="helv",
+                align=fitz.TEXT_ALIGN_CENTER,
+            )
+
+        document.save(str(destination))
+        document.close()
+        log_action(
+            self._db, LogAction.EXPORT,
+            f"Fiches planning : {destination.name} — "
+            f"{len(interventions)} fiche(s)",
+        )
+        return destination
+
