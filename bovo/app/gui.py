@@ -1263,17 +1263,31 @@ class BovoApp(ctk.CTk):
         self.reveal()
 
     def _can(self, action: str) -> bool:
-        """Raccourci de vérification de droits sur la session courante."""
+        """Raccourci de vérification de droits sur la session courante.
+
+        Utilise :func:`getattr` avec fallback pour rester compatible avec
+        d'anciennes versions de ``auth.py`` qui n'auraient pas encore la
+        méthode granulaire ``can_edit_inspections`` / ``can_import_pdf``.
+        Sans ce filet, une désynchronisation entre les fichiers du
+        téléchargement (typique après un ``git pull`` partiel ou un zip
+        partiellement extrait) faisait crasher le splash au démarrage.
+        """
         if self._auth is None:
             return True  # mode test / sans auth
         session = self._auth.session
+        # Fallbacks : si la méthode granulaire n'existe pas encore
+        # (ancienne version d'auth.py), on retombe sur ``can_edit``.
+        def _call(name: str, fallback: str = "can_edit") -> bool:
+            method = getattr(session, name, None) or getattr(session, fallback, None)
+            return bool(method()) if callable(method) else False
+
         return {
-            "edit": session.can_edit(),
-            "edit_inspections": session.can_edit_inspections(),
-            "view_planning": session.can_view_planning(),
-            "import_pdf": session.can_import_pdf(),
-            "manage_users": session.can_manage_users(),
-            "view_audit": session.can_view_audit(),
+            "edit": _call("can_edit"),
+            "edit_inspections": _call("can_edit_inspections", "can_edit"),
+            "view_planning": _call("can_view_planning"),
+            "import_pdf": _call("can_import_pdf", "can_edit"),
+            "manage_users": _call("can_manage_users"),
+            "view_audit": _call("can_view_audit"),
         }.get(action, False)
 
     def _current_username(self) -> str:
