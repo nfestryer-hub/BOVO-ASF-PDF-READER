@@ -54,7 +54,7 @@ ORDERED_COLUMNS: dict[str, list[str]] = {
         "autoroute", "type_ouvrage", "secteur", "sens", "emplacement",
         "type_materiau", "latitude", "longitude", "lien_maps", "requalif",
         "etat_cunettes", "type_defaut", "urgence", "description", "photo",
-        "statut",
+        "statut", "commentaire",
     ],
     "incidents": [
         "date", "autoroute", "pk", "type_incident", "description",
@@ -122,6 +122,7 @@ FORM_FIELDS: dict[str, list[FieldSpec]] = {
         FieldSpec("description", "Commentaires", "long"),
         FieldSpec("photo", "Photo(s)", "text"),
         FieldSpec("statut", "Statut", "text"),
+        FieldSpec("commentaire", "Commentaire", "long"),
     ],
     "incidents": [
         FieldSpec("date", "Date", "date"),
@@ -155,50 +156,137 @@ LIST_COLUMNS: dict[str, list[str]] = {
 
 # Découpage du formulaire "Rapport d'inspection" en 4 sections ASF
 # (basé sur le classeur ASF "Form visites assain V2026-06-01.xlsx").
-# Chaque section = (titre, [(colonne_db, libellé)]).
-ASF_RAPPORT_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
-    (
-        "Informations Générales",
-        [
-            ("identifiant", "Identifiant"),
-            ("date", "Date de visite"),
-            ("prestataire", "Prestataire"),
-            ("inspecteur", "Inspecteur"),
-            ("n_inspection", "N° Inspection"),
-            ("autoroute", "Autoroute"),
-            ("secteur", "Secteur"),
-            ("sens", "Sens"),
-        ],
-    ),
-    (
-        "Caractéristiques de l'ouvrage",
-        [
-            ("type_ouvrage", "Type d'ouvrage"),
+#
+# ⚠️ Le classeur contient 5 onglets — un par type d'ouvrage — avec des
+# structures LÉGÈREMENT différentes (nombre de champs par section) :
+#
+#   • Caniveau / Fossé : Caractéristiques a 3 champs (Type mat + Emplacement
+#     + Si obj à requalifier) ; Surveillance a 3 champs (État + Comm + Photo).
+#   • Cunette : Caractéristiques a 2 champs (Type mat + Emplacement) ;
+#     Surveillance a 4 champs (Si obj + État + Comm + Photo).
+#   • Collecteur enterré / Descente d'eau : Caractéristiques n'a que 1 champ
+#     (Si obj à requalifier — PAS de Type mat ni Emplacement) ; Surveillance
+#     a 3 champs (État + Comm + Photo).
+#
+# On stocke pour chaque type sa liste de 4 sections. Section 4 "Autres
+# documents rattachés à la visite" est utilisée pour les champs étendus
+# (Lien Maps, coordonnées, Type de défaut, Urgence, Statut) qui ne
+# figurent pas dans le classeur ASF mais que Bovo souhaite conserver.
+
+_SEC_INFOS_GENERALES: list[tuple[str, str]] = [
+    ("identifiant", "Identifiant"),
+    ("date", "Date de visite"),
+    ("prestataire", "Prestataire"),
+    ("inspecteur", "Inspecteur"),
+    ("commentaire", "Commentaire"),
+    ("n_inspection", "N° Inspection"),
+    ("autoroute", "Autoroute"),
+    ("secteur", "Secteur"),
+    ("sens", "Sens"),
+]
+
+_SEC_AUTRES_DOCUMENTS: list[tuple[str, str]] = [
+    ("lien_maps", "Lien Maps"),
+    ("latitude", "Latitude"),
+    ("longitude", "Longitude"),
+    ("type_defaut", "Type de défaut"),
+    ("urgence", "Urgence"),
+    ("statut", "Statut"),
+]
+
+#: Liste des 5 types d'ouvrage ASF (onglets du classeur).
+ASF_OUVRAGE_TYPES: tuple[str, ...] = (
+    "Caniveau", "Cunette", "Fossé", "Collecteur enterré", "Descente d'eau",
+)
+
+#: Mise en page complète (4 sections) par type d'ouvrage ASF.
+#: Structure : ``{ouvrage: [(titre_section, [(col_db, libellé), ...]), ...]}``
+ASF_OUVRAGE_LAYOUTS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
+    "Caniveau": [
+        ("Informations Générales", _SEC_INFOS_GENERALES),
+        ("Caractéristiques du caniveau", [
             ("type_materiau", "Type de matériau"),
             ("emplacement", "Emplacement"),
-            ("latitude", "Latitude"),
-            ("longitude", "Longitude"),
-            ("lien_maps", "Lien Maps"),
-        ],
-    ),
-    (
-        "Surveillance générale",
-        [
             ("requalif", "Si objet à requalifier"),
-            ("etat_cunettes", "État général de l'ouvrage"),
-            ("type_defaut", "Type de défaut"),
-            ("urgence", "Urgence"),
-            ("statut", "Statut"),
-        ],
-    ),
-    (
-        "Autres documents rattachés à la visite",
-        [
+        ]),
+        ("Surveillance générale", [
+            ("etat_cunettes", "État général du caniveau ?"),
             ("description", "Commentaires"),
             ("photo", "Photo(s)"),
-        ],
-    ),
-]
+        ]),
+        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
+    ],
+    "Cunette": [
+        ("Informations Générales", _SEC_INFOS_GENERALES),
+        ("Caractéristiques de la cunette", [
+            ("type_materiau", "Type de matériau"),
+            ("emplacement", "Emplacement"),
+        ]),
+        ("Surveillance générale", [
+            ("requalif", "Si objet à requalifier"),
+            ("etat_cunettes", "État général de la cunette ?"),
+            ("description", "Commentaires"),
+            ("photo", "Photo(s)"),
+        ]),
+        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
+    ],
+    "Fossé": [
+        ("Informations Générales", _SEC_INFOS_GENERALES),
+        ("Caractéristiques du fossé", [
+            ("type_materiau", "Type de matériau"),
+            ("emplacement", "Emplacement"),
+            ("requalif", "Si objet à requalifier"),
+        ]),
+        ("Surveillance générale", [
+            ("etat_cunettes", "État général du fossé ?"),
+            ("description", "Commentaires"),
+            ("photo", "Photo(s)"),
+        ]),
+        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
+    ],
+    "Collecteur enterré": [
+        ("Informations Générales", _SEC_INFOS_GENERALES),
+        ("Caractéristiques du collecteur", [
+            ("requalif", "Si objet à requalifier"),
+        ]),
+        ("Surveillance générale", [
+            ("etat_cunettes", "État général du collecteur ?"),
+            ("description", "Commentaires"),
+            ("photo", "Photo(s)"),
+        ]),
+        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
+    ],
+    "Descente d'eau": [
+        ("Informations Générales", _SEC_INFOS_GENERALES),
+        ("Caractéristiques de la descente d'eau", [
+            ("requalif", "Si objet à requalifier"),
+        ]),
+        ("Surveillance générale", [
+            ("etat_cunettes", "État général de la descente d'eau ?"),
+            ("description", "Commentaires"),
+            ("photo", "Photo(s)"),
+        ]),
+        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
+    ],
+}
+
+
+def asf_layout_for(type_ouvrage: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Retourne la mise en page ASF adaptée au type d'ouvrage sélectionné.
+
+    Retombe sur le layout **Caniveau** (le plus complet) si le type d'ouvrage
+    n'est pas reconnu — ce qui permet de gérer les codes legacy (CA, OH, DE)
+    ainsi que les rapports historiques sans type_ouvrage renseigné.
+    """
+    if type_ouvrage in ASF_OUVRAGE_LAYOUTS:
+        return ASF_OUVRAGE_LAYOUTS[type_ouvrage]
+    return ASF_OUVRAGE_LAYOUTS["Caniveau"]
+
+
+# Rétro-compatibilité : ancien nom, alias vers le layout Caniveau par défaut.
+ASF_RAPPORT_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = (
+    ASF_OUVRAGE_LAYOUTS["Caniveau"]
+)
 
 # Listes de référence par défaut (utilisées tant que le classeur n'est pas importé).
 DEFAULT_REFERENTIEL: dict[str, list[str]] = {
@@ -510,7 +598,9 @@ class InspectionService:
         rows_data = self._db.list_generic(sheet)
         if sheet == "rapports":
             return exporter.asf_rapports_to_pdf(
-                ASF_RAPPORT_SECTIONS, rows_data, destination,
+                None, rows_data, destination,
+                layouts_by_ouvrage=ASF_OUVRAGE_LAYOUTS,
+                ouvrage_order=list(ASF_OUVRAGE_TYPES),
             )
         columns = ORDERED_COLUMNS[sheet]
         labels = {f.column: f.label for f in FORM_FIELDS[sheet]}

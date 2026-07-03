@@ -18,6 +18,7 @@ class StatutIntervention(StrEnum):
     """Statuts possibles d'une intervention ASF."""
 
     A_FAIRE = "À faire"
+    A_PLANIFIER = "À planifier"
     PLANIFIEE = "Planifiée"
     EN_COURS = "En cours"
     TERMINEE = "Terminée"

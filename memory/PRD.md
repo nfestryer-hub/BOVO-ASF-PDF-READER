@@ -67,40 +67,56 @@ L'application doit aussi être visuellement plus soignée.
   en volume, avec rotation atomique.
 
 ### Mise en page ASF (session 2 — actuelle)
-- **Formulaire Rapport d'inspection en 4 sections ASF** : refonte
-  complète du `RowFormDialog` pour ``sheet == "rapports"``. Affichage
-  horizontal en 4 cartes colorées (rouge / bleu / orange / vert)
-  reprenant exactement la structure du classeur ASF « Form visites
-  assainissement V2026-06-01 » :
-  1. Informations Générales (Identifiant, Date de visite, Prestataire, Inspecteur, N° Inspection, Autoroute, Secteur, Sens)
-  2. Caractéristiques de l'ouvrage (Type d'ouvrage, Type de matériau, Emplacement, Latitude, Longitude, Lien Maps)
-  3. Surveillance générale (Si objet à requalifier, État général de l'ouvrage, Type de défaut, Urgence, Statut)
-  4. Autres documents rattachés à la visite (Commentaires, Photo(s))
-- **Export PDF ASF** : nouvelle méthode
-  ``Exporter.asf_rapports_to_pdf`` qui produit un PDF A3 paysage avec
-  les 4 en-têtes de sections fusionnés + sous-en-têtes de colonnes,
-  matchant visuellement le classeur Excel ASF. Utilisée
-  automatiquement pour l'export du module « Rapports d'inspection ».
-- **Référentiels ASF** : mise à jour de `type` (Caniveau, Collecteur
-  enterré, Cunette, Fossé, Descente d'eau), `type_materiau` (matériaux
-  ASF réels), `emplacement` (nouveau — Haut/Bas de talus, GBA…),
-  `requalif` (5 flags ASF), `etat_cunettes` (5 niveaux ASF).
-- **Vue Inspections modernisée** : bandeau KPIs (4 cartes colorées
-  affichant le nombre par module), sous-titre "conforme au formulaire
-  ASF V2026-06-01", badges colorés pour Statut / Urgence / État
-  général (vert/orange/rouge), état vide illustré.
-- **Vue Paramètres refactorée** : 3 cartes (Apparence, Connexion
-  serveur, Emplacements), avec bouton « Reconfigurer le serveur ».
-- **Login enrichi** : message d'aide sous "Se souvenir de moi" :
-  « Votre session sera reconduite automatiquement pendant 30 jours ».
+- **Formulaire Rapport d'inspection en 4 sections ASF** avec **5 layouts
+  distincts** (un par onglet du classeur Excel ASF) :
+  - **Caniveau / Fossé** : Caractéristiques = Type mat + Emplacement + Si obj à req ; Surveillance = État + Comm + Photo
+  - **Cunette** : Caractéristiques = Type mat + Emplacement ; Surveillance = Si obj à req + État + Comm + Photo
+  - **Collecteur enterré / Descente d'eau** : Caractéristiques = Si obj à req (seul) ; Surveillance = État + Comm + Photo
+  - Le formulaire propose un sélecteur « Type d'ouvrage » qui **rebuild dynamiquement** les 4 cartes colorées selon le type choisi
+  - Nouveau champ DB `commentaire` (long text) pour la section « Informations Générales »
+  - Migration SQLite auto (`ALTER TABLE ADD COLUMN`) pour compat avec anciennes bases
+- **Export PDF ASF multi-ouvrages** : une grille distincte par type
+  d'ouvrage ASF dans le PDF final (A3 paysage). Chaque groupe a son
+  bandeau titre + ses 4 en-têtes de sections spécifiques.
+- **Référentiels ASF** : tous à jour (type, type_materiau, emplacement,
+  requalif, etat_cunettes).
+- **Vue Inspections modernisée** : bandeau KPIs (4 cartes colorées),
+  badges colorés Statut/Urgence/État, état vide illustré.
+- **Login enrichi** : message d'aide sous "Se souvenir de moi".
+- **Paramètres refactoré** : 3 cartes + bouton « Reconfigurer le serveur ».
+
+### Revue post-import + statut « À planifier » (session 3 — actuelle)
+- **Nouveau statut `A_PLANIFIER` = « À planifier »** (couleur gris `#9AA0A6`)
+  ajouté à :class:`StatutIntervention`. Il représente un **brouillon**
+  d'intervention importée depuis un PDF, avant validation manuelle.
+- **Import PDF → statut par défaut « À planifier »** (au lieu de
+  « Planifiée » avant). Les interventions apparaissent immédiatement
+  dans le calendrier en gris (couleur distinctive) mais ne sont pas
+  considérées comme confirmées.
+- **Nouveau dialogue `ImportReviewDialog`** ouvert automatiquement après
+  chaque import PDF :
+  - Liste toutes les interventions créées/mises à jour avec case à cocher.
+  - Boutons « Tout cocher » / « Tout décocher ».
+  - Compteur temps-réel « N/N cochés → passeront en Planifiée ».
+  - « Confirmer la planification » → promeut les lignes cochées en
+    `PLANIFIEE`. Les non cochées restent en `A_PLANIFIER`.
+  - « Fermer sans confirmer » → tout reste en brouillon.
+- **Reprogrammation intelligente** : si un ouvrage réapparaît dans un
+  nouveau PDF avec une date future, l'entrée en base est mise à jour
+  (via `upsert_intervention` sur clé `ouvrage`) — pas de doublon.
+- **Préservation des statuts avancés** : un ouvrage déjà en
+  `EN_COURS` ou `TERMINEE` n'est PAS écrasé lors d'un ré-import.
+  Un ouvrage `PLANIFIEE` avec nouvelle date future reste `PLANIFIEE`
+  (juste la date change).
 
 ## Tests
 - `tests/test_bovo.py` : 41 tests (parser, DB, planner, calendrier, auth…).
-- `tests/test_remember_me.py` : 6 tests (persistance token, auto-login).
-- `tests/test_v4_fixes.py` : 5 tests (import PDF, JSON mirror, wipe DB).
-- `tests/test_asf_export.py` (**nouveau**) : 3 tests (PDF ASF avec
-  sections, service export routing, format A3 paysage).
-- **Total : 55 tests, 100 % passing.**
+- `tests/test_remember_me.py` : 6 tests.
+- `tests/test_v4_fixes.py` : 5 tests.
+- `tests/test_asf_export.py` : 4 tests (PDF ASF + multi-ouvrages).
+- `tests/test_import_review.py` (**nouveau**) : 5 tests (statut par défaut,
+  imported_ids, reprogrammation, préservation En cours).
+- **Total : 61 tests, 100 % passing.**
 
 ## Backlog / P1
 - Test end-to-end desktop → backend (nécessite un environnement Windows

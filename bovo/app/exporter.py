@@ -281,24 +281,39 @@ class Exporter:
     # ------------------------------------------------------------------ #
     def asf_rapports_to_pdf(
         self,
-        sections: list[tuple[str, list[tuple[str, str]]]],
+        sections: list[tuple[str, list[tuple[str, str]]]] | None,
         rapports: list[dict[str, str]],
         destination: Path,
+        *,
+        layouts_by_ouvrage: dict[str, list[tuple[str, list[tuple[str, str]]]]] | None = None,
+        ouvrage_order: list[str] | None = None,
     ) -> Path:
         """Exporte les rapports d'inspection au format ASF (mise en page Excel).
 
+        Deux modes d'appel :
+
+        * **Legacy** (rétrocompat) : passer un ``sections`` unique. Tous
+          les rapports sont rendus dans une seule grille.
+        * **ASF multi-ouvrages** (recommandé) : passer
+          ``layouts_by_ouvrage`` (une mise en page distincte par type
+          d'ouvrage). Les rapports sont alors regroupés par
+          ``type_ouvrage`` et chaque groupe produit sa propre grille
+          avec titre, en-têtes de sections spécifiques et sous-en-têtes.
+          Ceci reproduit fidèlement les **5 onglets** du classeur ASF
+          « Form visites assain V2026-06-01.xlsx ».
+
         Args:
-            sections: Structure ``[(titre_section, [(col_db, libellé), ...])]``.
-                Typiquement :data:`app.inspections.ASF_RAPPORT_SECTIONS`.
+            sections: Mise en page unique (mode legacy). ``None`` en mode
+                multi-ouvrages.
             rapports: Liste des rapports (chacun un dict ``col_db → valeur``).
             destination: Chemin du PDF cible.
+            layouts_by_ouvrage: Dict ``{type_ouvrage: layout}``. Utilisé
+                si fourni (mode multi-ouvrages).
+            ouvrage_order: Ordre d'apparition des ouvrages dans le PDF.
+                Défaut : ordre des clés de ``layouts_by_ouvrage``.
 
         Returns:
             Le chemin du PDF généré.
-
-        Le PDF est en A3 paysage. En-têtes de sections colorés :
-        rouge / bleu / orange / vert. Chaque ligne de rapport = 1 bande
-        horizontale sous les en-têtes fusionnés.
         """
         destination.parent.mkdir(parents=True, exist_ok=True)
         document = fitz.open()
@@ -314,16 +329,11 @@ class Exporter:
             (0.165, 0.616, 0.561),  # 2A9D8F vert
         ]
 
-        # Largeur relative de chaque champ. Les champs "long" (commentaires,
-        # description, lien Maps, photos) ont un poids double pour éviter la
-        # troncature. Les champs très courts sont compacts.
         _LONG_FIELDS = {
             "description", "photo", "lien_maps", "type_defaut",
             "commentaire", "observations",
         }
-        _COMPACT_FIELDS = {
-            "sens", "urgence",
-        }
+        _COMPACT_FIELDS = {"sens", "urgence"}
 
         def _field_weight(col: str) -> float:
             if col in _LONG_FIELDS:
@@ -332,31 +342,10 @@ class Exporter:
                 return 0.85
             return 1.2
 
-        # Calcule les largeurs de section proportionnelles à la somme des
-        # poids des champs qui les composent.
-        section_weights = [
-            sum(_field_weight(col) for col, _ in fields) or 1.0
-            for _, fields in sections
-        ]
-        total_weight = sum(section_weights)
-        section_widths = [(w / total_weight) * usable_w for w in section_weights]
-
-        # Largeur de chaque colonne DANS une section.
-        field_widths_by_section: list[list[float]] = []
-        for (_title, fields), section_w, s_weight in zip(
-            sections, section_widths, section_weights, strict=False,
-        ):
-            if not fields:
-                field_widths_by_section.append([])
-                continue
-            field_widths_by_section.append([
-                (_field_weight(col) / s_weight) * section_w
-                for col, _ in fields
-            ])
-
         header_row_h = 32.0
         subheader_row_h = 48.0
         min_data_row_h = 36.0
+        section_title_h = 26.0  # bandeau titre du groupe d'ouvrage
         title_size = 15
         section_size = 11
         subheader_size = 8.0
@@ -391,8 +380,30 @@ class Exporter:
                 color=text_color, fontname=fontname, align=align,
             )
 
-        def _draw_page_header(page: "fitz.Page") -> float:
-            """Trace le titre + les en-têtes de sections + les libellés colonnes."""
+        def _compute_widths(
+            layout: list[tuple[str, list[tuple[str, str]]]],
+        ) -> tuple[list[float], list[list[float]]]:
+            """Calcule (largeurs_sections, largeurs_champs_par_section)."""
+            weights = [
+                sum(_field_weight(col) for col, _ in fields) or 1.0
+                for _, fields in layout
+            ]
+            total = sum(weights) or 1.0
+            sec_widths = [(w / total) * usable_w for w in weights]
+            field_widths: list[list[float]] = []
+            for (_t, fields), sw, sweight in zip(
+                layout, sec_widths, weights, strict=False,
+            ):
+                if not fields:
+                    field_widths.append([])
+                    continue
+                field_widths.append([
+                    (_field_weight(col) / sweight) * sw for col, _ in fields
+                ])
+            return sec_widths, field_widths
+
+        def _draw_page_top(page: "fitz.Page") -> None:
+            """Titre général du document (en haut de chaque nouvelle page)."""
             page.insert_text(
                 (margin_x, margin_y - 32),
                 "Rapports d'inspection ASF — Bovo ASF Manager",
@@ -400,88 +411,194 @@ class Exporter:
             )
             page.insert_text(
                 (margin_x, margin_y - 14),
-                f"Formulaire visites assainissement V2026-06-01 · "
+                "Formulaire visites assainissement V2026-06-01 · "
                 f"édité le {format_date_fr(date.today())}",
                 fontsize=9, color=(0.35, 0.35, 0.35), fontname="helv",
             )
 
-            # En-tête de sections colorés (ligne 1 fusionnée par section).
+        def _draw_group_header(
+            page: "fitz.Page", y: float, ouvrage: str, count: int,
+            layout: list[tuple[str, list[tuple[str, str]]]],
+            sec_widths: list[float], field_widths: list[list[float]],
+        ) -> float:
+            """Trace le bandeau de groupe (nom d'ouvrage) + en-têtes de sections."""
+            # Bandeau titre du groupe (fond gris foncé, texte blanc).
+            _draw_cell(
+                page, margin_x, y, usable_w, section_title_h,
+                f"  {ouvrage}  —  {count} rapport(s)",
+                fill=(0.12, 0.12, 0.14),
+                text_color=(1.0, 1.0, 1.0),
+                fontsize=12, fontname="hebo",
+                align=fitz.TEXT_ALIGN_LEFT,
+            )
+            y += section_title_h
+            # En-tête des sections (rouge / bleu / orange / vert).
             x = margin_x
             for idx, ((title_txt, _fields), sw) in enumerate(
-                zip(sections, section_widths, strict=False),
+                zip(layout, sec_widths, strict=False),
             ):
                 _draw_cell(
-                    page, x, margin_y, sw, header_row_h, title_txt,
+                    page, x, y, sw, header_row_h, title_txt,
                     fill=section_colors[idx % len(section_colors)],
                     text_color=(1.0, 1.0, 1.0),
                     fontsize=section_size, fontname="hebo",
                     align=fitz.TEXT_ALIGN_CENTER,
                 )
                 x += sw
-
-            # Sous-en-têtes : libellé de chaque champ.
-            y_sub = margin_y + header_row_h
+            y += header_row_h
+            # Sous-en-têtes de colonnes.
             x = margin_x
-            for idx, (_title, fields) in enumerate(sections):
-                widths = field_widths_by_section[idx]
+            for idx, (_t, fields) in enumerate(layout):
+                widths = field_widths[idx]
                 for (_col, label), w in zip(fields, widths, strict=False):
                     _draw_cell(
-                        page, x, y_sub, w, subheader_row_h, label,
+                        page, x, y, w, subheader_row_h, label,
                         fill=(0.95, 0.95, 0.97),
                         text_color=(0.1, 0.1, 0.1),
                         fontsize=subheader_size, fontname="hebo",
                         align=fitz.TEXT_ALIGN_CENTER,
                     )
                     x += w
-            return y_sub + subheader_row_h
+            return y + subheader_row_h
 
-        def _new_page() -> tuple["fitz.Page", float]:
-            new_page = document.new_page(width=page_width, height=page_height)
-            data_y = _draw_page_header(new_page)
-            return new_page, data_y
-
-        page, y = _new_page()
-
-        for rapport in rapports:
-            # Calcule la hauteur totale de la ligne (max sur toutes les colonnes).
+        def _draw_data_row(
+            page: "fitz.Page", y: float, rapport: dict[str, str],
+            layout: list[tuple[str, list[tuple[str, str]]]],
+            field_widths: list[list[float]],
+        ) -> float:
+            """Trace la ligne de données d'un rapport. Retourne le nouveau y."""
             row_lines_max = 1
-            for idx, (_title, fields) in enumerate(sections):
-                widths = field_widths_by_section[idx]
+            for idx, (_t, fields) in enumerate(layout):
+                widths = field_widths[idx]
                 for (col, _label), w in zip(fields, widths, strict=False):
                     val = str(rapport.get(col, "") or "")
-                    lines_needed = _content_lines(val, w)
-                    if lines_needed > row_lines_max:
-                        row_lines_max = lines_needed
+                    lines = _content_lines(val, w)
+                    if lines > row_lines_max:
+                        row_lines_max = lines
             row_h = max(min_data_row_h, row_lines_max * (cell_size + 2.5) + 8)
-
-            # Nouvelle page si dépassement.
-            if y + row_h > page_height - margin_y - 22:
-                page, y = _new_page()
-
-            # Dessine chaque cellule de la ligne.
             x = margin_x
-            for idx, (_title, fields) in enumerate(sections):
-                widths = field_widths_by_section[idx]
+            for idx, (_t, fields) in enumerate(layout):
+                widths = field_widths[idx]
                 for (col, _label), w in zip(fields, widths, strict=False):
                     val = str(rapport.get(col, "") or "")
-                    # Formate la date pour lisibilité FR.
-                    if col in ("date",) and val:
+                    if col == "date" and val:
                         try:
                             val = format_date_fr(date.fromisoformat(val[:10])) or val
                         except ValueError:
                             pass
                     _draw_cell(page, x, y, w, row_h, val)
                     x += w
-            y += row_h
+            return y + row_h
 
-        # Pied de page final.
+        # ------------------------------------------------------------------ #
+        # Mode "multi-ouvrages" : une grille par type d'ouvrage.
+        # ------------------------------------------------------------------ #
+        if layouts_by_ouvrage:
+            groups: dict[str, list[dict[str, str]]] = {}
+            for rapport in rapports:
+                key = rapport.get("type_ouvrage") or "Caniveau"
+                if key not in layouts_by_ouvrage:
+                    key = "Caniveau"
+                groups.setdefault(key, []).append(rapport)
+
+            order = ouvrage_order or list(layouts_by_ouvrage.keys())
+            page = document.new_page(width=page_width, height=page_height)
+            _draw_page_top(page)
+            y = margin_y
+
+            for ouvrage in order:
+                items = groups.get(ouvrage, [])
+                if not items:
+                    continue  # aucun rapport pour ce type — on saute l'onglet
+                layout = layouts_by_ouvrage[ouvrage]
+                sec_widths, field_widths = _compute_widths(layout)
+                # Nouvelle page si pas assez de place pour l'en-tête + 1 ligne.
+                needed = section_title_h + header_row_h + subheader_row_h + min_data_row_h
+                if y + needed > page_height - margin_y - 22:
+                    page = document.new_page(width=page_width, height=page_height)
+                    _draw_page_top(page)
+                    y = margin_y
+                y = _draw_group_header(
+                    page, y, ouvrage, len(items),
+                    layout, sec_widths, field_widths,
+                )
+                for rapport in items:
+                    # Estime la hauteur de la ligne pour la pagination.
+                    row_lines_max = 1
+                    for idx, (_t, fields) in enumerate(layout):
+                        widths = field_widths[idx]
+                        for (col, _label), w in zip(fields, widths, strict=False):
+                            val = str(rapport.get(col, "") or "")
+                            lines = _content_lines(val, w)
+                            if lines > row_lines_max:
+                                row_lines_max = lines
+                    row_h = max(min_data_row_h, row_lines_max * (cell_size + 2.5) + 8)
+                    if y + row_h > page_height - margin_y - 22:
+                        page = document.new_page(width=page_width, height=page_height)
+                        _draw_page_top(page)
+                        y = margin_y
+                        y = _draw_group_header(
+                            page, y, f"{ouvrage} (suite)", len(items),
+                            layout, sec_widths, field_widths,
+                        )
+                    y = _draw_data_row(page, y, rapport, layout, field_widths)
+                y += 14  # espacement entre groupes
+
+            # Pied de page final.
+            page.insert_text(
+                (margin_x, page_height - 22),
+                f"{len(rapports)} rapport(s) ASF — {len(groups)} type(s) "
+                "d'ouvrage · Bovo ASF Manager · Développé par HENRI Dylan",
+                fontsize=8, color=(0.4, 0.4, 0.4),
+            )
+            document.save(str(destination))
+            document.close()
+            log_action(
+                self._db, LogAction.EXPORT,
+                f"Export ASF (rapports multi-ouvrages) : {destination.name} "
+                f"— {len(rapports)} rapport(s), {len(groups)} type(s).",
+            )
+            return destination
+
+        # ------------------------------------------------------------------ #
+        # Mode "legacy" : mise en page unique.
+        # ------------------------------------------------------------------ #
+        assert sections is not None
+        sec_widths, field_widths = _compute_widths(sections)
+
+        page = document.new_page(width=page_width, height=page_height)
+        _draw_page_top(page)
+        y = margin_y
+        y = _draw_group_header(
+            page, y, "Rapports d'inspection", len(rapports),
+            sections, sec_widths, field_widths,
+        )
+        for rapport in rapports:
+            row_lines_max = 1
+            for idx, (_t, fields) in enumerate(sections):
+                widths = field_widths[idx]
+                for (col, _label), w in zip(fields, widths, strict=False):
+                    val = str(rapport.get(col, "") or "")
+                    lines = _content_lines(val, w)
+                    if lines > row_lines_max:
+                        row_lines_max = lines
+            row_h = max(min_data_row_h, row_lines_max * (cell_size + 2.5) + 8)
+            if y + row_h > page_height - margin_y - 22:
+                page = document.new_page(width=page_width, height=page_height)
+                _draw_page_top(page)
+                y = margin_y
+                y = _draw_group_header(
+                    page, y, "Rapports d'inspection (suite)", len(rapports),
+                    sections, sec_widths, field_widths,
+                )
+            y = _draw_data_row(page, y, rapport, sections, field_widths)
+
         page.insert_text(
             (margin_x, page_height - 22),
             f"{len(rapports)} rapport(s) ASF — Bovo ASF Manager "
             "· Développé par HENRI Dylan",
             fontsize=8, color=(0.4, 0.4, 0.4),
         )
-
         document.save(str(destination))
         document.close()
         log_action(

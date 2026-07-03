@@ -1,0 +1,66 @@
+{
+  "iteration": 3,
+  "date": "2026-01-14",
+  "branch": "V4",
+  "summary": "Revue post-import + statut 'À planifier' + 5 layouts ASF distincts",
+  "status": "PASS",
+  "tests_run": 61,
+  "tests_passed": 61,
+  "tests_failed": 0,
+  "changes": [
+    {
+      "file": "bovo/app/models.py",
+      "type": "enum_extension",
+      "description": "Ajout StatutIntervention.A_PLANIFIER = 'À planifier'. Représente un brouillon d'import PDF, visible dans le calendrier mais pas encore confirmé."
+    },
+    {
+      "file": "bovo/app/calendar.py",
+      "type": "color_mapping",
+      "description": "Ajout couleur #9AA0A6 (gris) pour A_PLANIFIER. Priorité placée entre PLANIFIEE et TERMINEE dans dominant_color."
+    },
+    {
+      "file": "bovo/app/planner.py (local) + bovo/app/remote_services.py",
+      "type": "behavior_change",
+      "description": "Import PDF utilise désormais A_PLANIFIER par défaut au lieu de PLANIFIEE. Rescheduling: si ouvrage existe déjà avec date différente, upsert met à jour (pas de doublon). Statut EN_COURS/TERMINEE préservé lors d'un ré-import. Statut PLANIFIEE préservé si la nouvelle date est future."
+    },
+    {
+      "file": "bovo/app/planner.py + bovo/app/remote_services.py",
+      "type": "api_addition",
+      "description": "ImportResult.imported_ids: list[int] — remonte les IDs des interventions créées/mises à jour pour alimenter le dialogue de revue."
+    },
+    {
+      "file": "bovo/app/gui.py",
+      "type": "new_dialog",
+      "description": "Nouveau ImportReviewDialog: dialogue ouvert automatiquement après chaque import PDF. Liste les interventions avec case à cocher. 'Tout cocher'/'Tout décocher'. Compteur temps-réel. 'Confirmer' → promeut les cochées en PLANIFIEE."
+    },
+    {
+      "file": "bovo/app/gui.py (5 layouts ASF)",
+      "type": "ui_redesign",
+      "description": "Formulaire Rapport d'inspection utilise maintenant 5 layouts distincts (un par onglet du classeur Excel ASF). Le sélecteur 'Type d'ouvrage' rebuild dynamiquement les 4 cartes selon Caniveau/Cunette/Fossé/Collecteur/Descente."
+    },
+    {
+      "file": "bovo/app/exporter.py",
+      "type": "enhancement",
+      "description": "Exporter.asf_rapports_to_pdf() supporte maintenant le mode multi-ouvrages: paramètre layouts_by_ouvrage groupe les rapports par type et produit une grille distincte par onglet ASF dans le PDF final."
+    },
+    {
+      "file": "bovo/app/inspections.py",
+      "type": "schema_extension",
+      "description": "Ajout ASF_OUVRAGE_LAYOUTS (5 layouts) + asf_layout_for(type_ouvrage). Nouvelle colonne 'commentaire' dans le schéma rapports (long text). Ajouté au FORM_FIELDS."
+    },
+    {
+      "file": "bovo/app/database.py",
+      "type": "migration",
+      "description": "ensure_tables_from_specs() ajoute automatiquement les colonnes manquantes via ALTER TABLE. Idempotent, safe pour les bases existantes."
+    },
+    {
+      "file": "bovo/tests/test_import_review.py",
+      "type": "new_tests",
+      "description": "5 nouveaux tests: statut par défaut A_PLANIFIER, imported_ids peuplé, reprogrammation update sans doublon, préservation En cours, couleur distincte A_PLANIFIER vs PLANIFIEE."
+    }
+  ],
+  "user_facing_behavior": {
+    "before": "Import PDF → toutes les interventions apparaissent en 'Planifiée' (orange) directement.",
+    "after": "Import PDF → interventions en 'À planifier' (gris) visibles au calendrier + dialogue automatique 'Cocher pour planifier' → coche celles confirmées → passent en 'Planifiée' (orange)."
+  }
+}

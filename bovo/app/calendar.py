@@ -19,6 +19,7 @@ from app.models import Intervention, StatutIntervention
 # Couleurs (hex) associées à chaque statut, réutilisées par le GUI.
 STATUT_COLORS: dict[StatutIntervention, str] = {
     StatutIntervention.A_FAIRE: "#E63946",
+    StatutIntervention.A_PLANIFIER: "#9AA0A6",  # gris — brouillon d'import PDF
     StatutIntervention.PLANIFIEE: "#F4A261",
     StatutIntervention.EN_COURS: "#2A9D8F",
     StatutIntervention.TERMINEE: "#43AA8B",
@@ -54,6 +55,7 @@ class DayCell:
             StatutIntervention.EN_COURS,
             StatutIntervention.A_FAIRE,
             StatutIntervention.PLANIFIEE,
+            StatutIntervention.A_PLANIFIER,
             StatutIntervention.TERMINEE,
             StatutIntervention.ANNULEE,
         ]

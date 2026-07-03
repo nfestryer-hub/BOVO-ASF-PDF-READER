@@ -474,65 +474,134 @@ class RowFormDialog(ctk.CTkToplevel):
         ).pack(side="left", padx=(10, 0))
 
     # ------------------------------------------------------------------ #
-    # Mise en page ASF (rapports d'inspection)
+    # Mise en page ASF (rapports d'inspection) — 5 layouts distincts
     # ------------------------------------------------------------------ #
     def _build_asf_sections(self, existing: dict[str, str]) -> None:
         """Construit le formulaire rapport en 4 sections ASF horizontales.
 
-        Chaque section est une carte verticale (Informations Générales,
-        Caractéristiques de l'ouvrage, Surveillance générale, Autres
-        documents). L'ensemble est encapsulé dans un ``CTkScrollableFrame``
-        horizontal + vertical au cas où l'écran serait limité.
+        Le classeur ASF contient **5 onglets** (Caniveau, Cunette, Fossé,
+        Collecteur enterré, Descente d'eau), chacun avec une structure
+        légèrement différente (nombre de champs par section). Cette fonction :
+
+        1. Affiche un **sélecteur "Type d'ouvrage"** en haut du formulaire.
+        2. Rebuild dynamiquement les 4 sections quand l'utilisateur change
+           de type. La valeur des champs est conservée entre les rebuilds.
+        3. Chaque section est une carte colorée verticale
+           (rouge / bleu / orange / vert).
         """
-        from app.inspections import ASF_RAPPORT_SECTIONS
+        from app.inspections import ASF_OUVRAGE_TYPES, asf_layout_for
 
         # Index rapide {column → FieldSpec} pour retrouver widget/référentiel.
-        field_index: dict[str, FieldSpec] = {
+        self._asf_field_index: dict[str, FieldSpec] = {
             f.column: f for f in self._service.form_fields("rapports")
         }
+        self._asf_existing: dict[str, str] = dict(existing)
 
-        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=16, pady=8)
+        # Sélecteur "Type d'ouvrage" — en haut, très visible.
+        type_bar = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=10)
+        type_bar.pack(fill="x", padx=16, pady=(10, 4))
+        ctk.CTkLabel(
+            type_bar,
+            text="📋  Type d'ouvrage ASF (formulaire à remplir) :",
+            font=ctk.CTkFont(size=13, weight="bold"),
+        ).pack(side="left", padx=16, pady=12)
+        initial_type = existing.get("type_ouvrage", "Caniveau")
+        if initial_type not in ASF_OUVRAGE_TYPES:
+            initial_type = "Caniveau"
+        self._asf_type_var = ctk.StringVar(value=initial_type)
+        ctk.CTkOptionMenu(
+            type_bar, values=list(ASF_OUVRAGE_TYPES),
+            variable=self._asf_type_var, height=34, width=220,
+            fg_color=ACCENT, button_color=ACCENT_HOVER,
+            dropdown_hover_color=ACCENT,
+            command=self._on_asf_type_change,
+        ).pack(side="left", padx=(0, 16), pady=10)
+        ctk.CTkLabel(
+            type_bar,
+            text="La mise en page s'adapte automatiquement au type sélectionné.",
+            text_color="#8A8A90", font=ctk.CTkFont(size=11),
+        ).pack(side="left", padx=8)
 
-        columns = ctk.CTkFrame(body, fg_color="transparent")
+        # Conteneur des 4 sections (rebuild-able).
+        self._asf_body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self._asf_body.pack(fill="both", expand=True, padx=12, pady=8)
+
+        # Widgets déjà créés — pour préserver les valeurs entre rebuilds.
+        self._widgets: dict[str, Any] = {}
+        # On force initialement type_ouvrage à la valeur du sélecteur.
+        self._render_asf_sections(asf_layout_for(initial_type))
+
+    def _on_asf_type_change(self, new_type: str) -> None:
+        """Callback quand l'utilisateur change de type d'ouvrage ASF.
+
+        On collecte d'abord les valeurs actuelles pour les préserver, puis
+        on reconstruit les 4 sections avec la mise en page du nouveau type.
+        """
+        from app.inspections import asf_layout_for
+
+        # Sauvegarde des valeurs actuellement saisies.
+        current_values = self._collect()
+        current_values["type_ouvrage"] = new_type
+        # Fusionne dans _asf_existing pour repopuler après rebuild.
+        self._asf_existing.update(current_values)
+        # Vide le conteneur, puis reconstruit.
+        for w in self._asf_body.winfo_children():
+            w.destroy()
+        self._widgets = {}
+        self._render_asf_sections(asf_layout_for(new_type))
+
+    def _render_asf_sections(
+        self, layout: list[tuple[str, list[tuple[str, str]]]],
+    ) -> None:
+        """(Re)dessine les 4 cartes de sections dans ``self._asf_body``."""
+        columns = ctk.CTkFrame(self._asf_body, fg_color="transparent")
         columns.pack(fill="both", expand=True)
-        # Une colonne par section, poids égal.
-        for i in range(len(ASF_RAPPORT_SECTIONS)):
+        for i in range(len(layout)):
             columns.grid_columnconfigure(i, weight=1, uniform="asf")
         columns.grid_rowconfigure(0, weight=1)
 
-        # Couleurs d'accent ASF pour chaque section (cohérence avec l'Excel).
+        # Couleurs d'accent ASF pour chaque section.
         section_colors = ["#E63946", "#457B9D", "#F4A261", "#2A9D8F"]
 
-        for idx, (section_title, fields) in enumerate(ASF_RAPPORT_SECTIONS):
+        for idx, (section_title, fields) in enumerate(layout):
             color = section_colors[idx % len(section_colors)]
             card = ctk.CTkFrame(columns, fg_color=CARD_BG, corner_radius=12)
             card.grid(row=0, column=idx, sticky="nsew", padx=6, pady=4)
 
-            # En-tête de section coloré (comme les cellules fusionnées Excel).
             header = ctk.CTkFrame(card, fg_color=color, corner_radius=0, height=42)
             header.pack(fill="x")
             header.pack_propagate(False)
             ctk.CTkLabel(
                 header, text=section_title, text_color="white",
-                font=ctk.CTkFont(size=13, weight="bold"),
-            ).pack(padx=12, pady=10, anchor="w")
+                font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
+                wraplength=260, justify="left",
+            ).pack(padx=12, pady=8, fill="x")
 
             content = ctk.CTkFrame(card, fg_color="transparent")
             content.pack(fill="both", expand=True, padx=12, pady=10)
 
             for column, label_text in fields:
-                field_spec = field_index.get(column)
+                field_spec = self._asf_field_index.get(column)
                 if field_spec is None:
                     continue
-                # Override du libellé pour matcher les intitulés ASF.
                 labelled = FieldSpec(
                     column=field_spec.column,
                     label=label_text,
                     widget=field_spec.widget,
                     ref_key=field_spec.ref_key,
                 )
-                self._build_asf_field(content, labelled, existing.get(column, ""))
+                self._build_asf_field(
+                    content, labelled, self._asf_existing.get(column, ""),
+                )
+
+        # Champ caché "type_ouvrage" (piloté par le sélecteur en haut).
+        # On l'ajoute directement dans les widgets pour qu'il soit persisté.
+        type_var = ctk.StringVar(value=self._asf_type_var.get())
+        self._widgets["type_ouvrage"] = type_var
+        # Synchronise en permanence type_ouvrage avec le sélecteur ASF.
+        self._asf_type_var.trace_add(
+            "write", lambda *_a: type_var.set(self._asf_type_var.get()),
+        )
 
     def _build_asf_field(
         self, master: ctk.CTkBaseClass, field: FieldSpec, value: str,
@@ -680,6 +749,206 @@ class RowFormDialog(ctk.CTkToplevel):
             return
         self._on_saved()
         self.destroy()
+
+
+class ImportReviewDialog(ctk.CTkToplevel):
+    """Dialogue de revue post-import — coche les interventions à planifier.
+
+    Après un import PDF, toutes les interventions arrivent en statut
+    « À planifier » (brouillon). Ce dialogue liste ces interventions
+    dans une table à cases à cocher : les cases cochées seront promues
+    en « Planifiée » d'un clic sur « Confirmer la planification ».
+
+    L'utilisateur peut :
+      * cocher / décocher individuellement une ligne ;
+      * utiliser « Tout cocher » / « Tout décocher » ;
+      * fermer sans confirmer — dans ce cas, tout reste en « À planifier ».
+    """
+
+    def __init__(
+        self,
+        parent: ctk.CTk,
+        planner: Any,
+        imported_ids: list[int],
+        on_confirmed: Callable[[int, int], None] | None = None,
+    ) -> None:
+        """Construit le dialogue de revue post-import."""
+        super().__init__(parent)
+        self._planner = planner
+        self._imported_ids = imported_ids
+        self._on_confirmed = on_confirmed or (lambda a, b: None)
+
+        self.title("Revue post-import — Cocher pour planifier")
+        self.geometry("980x680")
+        self.configure(fg_color=SURFACE)
+        self.grab_set()
+        self.transient(parent)
+
+        # --- En-tête coloré --- #
+        head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
+        head.pack(fill="x")
+        ctk.CTkLabel(
+            head, text="Import PDF terminé — Cochez pour confirmer la planification",
+            font=ctk.CTkFont(size=18, weight="bold"), text_color="white",
+        ).pack(padx=24, pady=(16, 4), anchor="w")
+        ctk.CTkLabel(
+            head,
+            text=("Les interventions importées sont en brouillon « À planifier ». "
+                  "Cochez celles dont la date est confirmée pour les passer en "
+                  "« Planifiée » et les afficher dans le calendrier officiel."),
+            text_color="white", font=ctk.CTkFont(size=12),
+            wraplength=920, justify="left",
+        ).pack(padx=24, pady=(0, 16), anchor="w")
+
+        # --- Barre d'actions rapides --- #
+        actions_bar = ctk.CTkFrame(self, fg_color="transparent")
+        actions_bar.pack(fill="x", padx=20, pady=(12, 4))
+        ctk.CTkButton(
+            actions_bar, text="✓  Tout cocher", width=140,
+            fg_color="#2A9D8F", hover_color="#238478",
+            command=lambda: self._set_all(True),
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            actions_bar, text="✗  Tout décocher", width=140,
+            fg_color="transparent", border_width=1, text_color=("black", "white"),
+            command=lambda: self._set_all(False),
+        ).pack(side="left")
+        self._counter_lbl = ctk.CTkLabel(
+            actions_bar, text="", text_color="#9AA0A6",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        )
+        self._counter_lbl.pack(side="right")
+
+        # --- Table des interventions --- #
+        table_wrap = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
+        table_wrap.pack(fill="both", expand=True, padx=20, pady=10)
+
+        header_row = ctk.CTkFrame(table_wrap, fg_color="transparent")
+        header_row.pack(fill="x", pady=(6, 6))
+        for text, w in [
+            ("", 40), ("Ouvrage", 130), ("Objet", 260),
+            ("Autoroute", 90), ("PR", 130),
+            ("Date début", 110), ("Date fin", 110),
+        ]:
+            ctk.CTkLabel(
+                header_row, text=text, width=w, anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold"),
+                text_color="#9AA0A6",
+            ).pack(side="left", padx=4)
+
+        # --- Charge les interventions à revoir --- #
+        self._checkboxes: dict[int, ctk.BooleanVar] = {}
+        interventions = self._load_interventions()
+        if not interventions:
+            ctk.CTkLabel(
+                table_wrap, text="Aucune intervention à revoir.",
+                text_color="#9AA0A6",
+            ).pack(pady=30)
+        else:
+            for iv in interventions:
+                self._build_row(table_wrap, iv)
+        self._update_counter()
+
+        # --- Boutons de confirmation --- #
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", padx=20, pady=(4, 16))
+        ctk.CTkButton(
+            footer, text="Fermer sans confirmer",
+            fg_color="transparent", border_width=1, text_color=("black", "white"),
+            width=180, height=42, command=self._cancel,
+        ).pack(side="right", padx=(8, 0))
+        ctk.CTkButton(
+            footer, text="✅  Confirmer la planification",
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            width=240, height=42, command=self._confirm,
+        ).pack(side="right")
+
+    def _load_interventions(self) -> list[Any]:
+        """Charge les interventions importées à partir de leurs IDs."""
+        loaded: list[Any] = []
+        for iid in self._imported_ids:
+            try:
+                iv = self._planner.get(iid)
+                if iv is not None:
+                    loaded.append(iv)
+            except Exception:  # noqa: BLE001 - une entrée manquante ne bloque pas
+                continue
+        # Trie par date de début (les plus proches en premier), puis par ouvrage.
+        loaded.sort(key=lambda i: (
+            i.date_debut or date.max, str(getattr(i, "ouvrage", "") or "")
+        ))
+        return loaded
+
+    def _build_row(self, master: ctk.CTkBaseClass, iv: Any) -> None:
+        """Construit une ligne de la table avec case à cocher."""
+        row = ctk.CTkFrame(master, fg_color=SURFACE, corner_radius=8)
+        row.pack(fill="x", pady=3)
+
+        var = ctk.BooleanVar(value=False)
+        self._checkboxes[iv.id] = var
+        ctk.CTkCheckBox(
+            row, text="", variable=var, width=40, checkbox_width=22,
+            checkbox_height=22, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=self._update_counter,
+        ).pack(side="left", padx=(10, 4), pady=8)
+
+        def _cell(text: str, width: int) -> None:
+            ctk.CTkLabel(
+                row, text=str(text or "—")[:60], width=width, anchor="w",
+                font=ctk.CTkFont(size=12),
+            ).pack(side="left", padx=4, pady=8)
+
+        _cell(iv.ouvrage, 130)
+        _cell(iv.objet, 260)
+        _cell(iv.autoroute, 90)
+        pr_range = f"{iv.pr_debut or '—'} → {iv.pr_fin or '—'}"
+        _cell(pr_range, 130)
+        _cell(format_date_fr(iv.date_debut) or "—", 110)
+        _cell(format_date_fr(iv.date_fin) or "—", 110)
+
+    def _set_all(self, value: bool) -> None:
+        """Coche/décoche toutes les lignes."""
+        for var in self._checkboxes.values():
+            var.set(value)
+        self._update_counter()
+
+    def _update_counter(self) -> None:
+        """Met à jour le compteur en haut à droite."""
+        checked = sum(1 for v in self._checkboxes.values() if v.get())
+        total = len(self._checkboxes)
+        self._counter_lbl.configure(
+            text=f"{checked} / {total} coché(s)  →  passeront en « Planifiée »",
+        )
+
+    def _confirm(self) -> None:
+        """Promeut les interventions cochées en « Planifiée »."""
+        promoted = 0
+        kept = 0
+        errors: list[str] = []
+        for iid, var in self._checkboxes.items():
+            if not var.get():
+                kept += 1
+                continue
+            try:
+                self._planner.set_statut(iid, StatutIntervention.PLANIFIEE)
+                promoted += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"#{iid}: {exc}")
+        if errors:
+            messagebox.showwarning(
+                "Erreurs partielles",
+                f"{promoted} promue(s), {len(errors)} en erreur :\n\n"
+                + "\n".join(errors[:10]),
+            )
+        self._on_confirmed(promoted, kept)
+        self.destroy()
+
+    def _cancel(self) -> None:
+        """Ferme sans modifier les statuts."""
+        self._on_confirmed(0, len(self._checkboxes))
+        self.destroy()
+
+
 
 
 class AttachDocumentDialog(ctk.CTkToplevel):
@@ -1668,18 +1937,45 @@ class BovoApp(ctk.CTk):
         self.after(120, self._poll_progress)
 
     def _finish_import(self, result: ImportResult) -> None:
-        """Finalise l'import : récapitulatif et notification."""
+        """Finalise l'import : récapitulatif + dialogue de revue à cocher.
+
+        Les interventions arrivent en statut « À planifier » par défaut.
+        Le dialogue de revue permet de cocher celles qui sont confirmées
+        et les promouvoir en « Planifiée » d'un clic.
+        """
         self._progress.set(1)
         self._progress_label.configure(text="Import terminé.")
         summary = (
             f"✅ {result.files_processed} fichier(s) · "
-            f"{result.interventions_created} créées · "
-            f"{result.interventions_updated} mises à jour."
+            f"{result.interventions_created} créée(s) · "
+            f"{result.interventions_updated} mise(s) à jour."
         )
         self._append_import_log(summary)
         for err in result.errors:
             self._append_import_log(f"⚠️ {err}")
-        messagebox.showinfo("Import terminé", summary)
+
+        # Ouvre le dialogue "Cocher pour planifier" si au moins une
+        # intervention a été créée ou mise à jour.
+        if result.imported_ids:
+            self.after(200, lambda: ImportReviewDialog(
+                self, self._planner, result.imported_ids,
+                on_confirmed=self._on_review_confirmed,
+            ))
+        else:
+            messagebox.showinfo("Import terminé", summary)
+
+    def _on_review_confirmed(self, promoted_count: int, kept_count: int) -> None:
+        """Callback après clôture du dialogue de revue post-import."""
+        msg = (
+            f"✅ {promoted_count} intervention(s) confirmée(s) → « Planifiée ».\n"
+            f"⏳ {kept_count} laissée(s) en « À planifier » (à revalider plus tard)."
+        )
+        self._append_import_log(msg)
+        messagebox.showinfo("Planification confirmée", msg)
+        # Rafraîchit la vue courante (calendrier / interventions).
+        current = getattr(self, "_current_view", None)
+        if current in ("calendrier", "interventions", "accueil"):
+            self._show_view(current)
 
     def _append_import_log(self, text: str) -> None:
         """Ajoute une ligne au journal d'import affiché."""

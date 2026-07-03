@@ -399,6 +399,27 @@ class Database:
                     f"created_at TEXT, updated_at TEXT);"
                 )
                 self._dynamic[table] = set(columns)
+                # Migration : ajoute les colonnes manquantes (ALTER TABLE).
+                # Idempotent — sert quand on ajoute un champ au schéma d'un
+                # module ASF sans casser les bases existantes.
+                cur = self._conn.execute(f'PRAGMA table_info("{table}")')
+                existing_cols = {row["name"] for row in cur.fetchall()}
+                for col in columns:
+                    if col not in existing_cols:
+                        try:
+                            self._conn.execute(
+                                f'ALTER TABLE "{table}" ADD COLUMN "{col}" '
+                                "TEXT DEFAULT ''",
+                            )
+                            logger.info(
+                                "Migration : colonne '%s' ajoutée à '%s'.",
+                                col, table,
+                            )
+                        except sqlite3.OperationalError as exc:
+                            logger.warning(
+                                "Migration '%s.%s' impossible : %s",
+                                table, col, exc,
+                            )
             self._conn.commit()
 
     def _check_table(self, table: str) -> set[str]:
