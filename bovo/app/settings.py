@@ -1,0 +1,171 @@
+"""Gestion des paramètres applicatifs de Bovo ASF Manager.
+
+Les paramètres sont persistés dans la table ``settings`` de SQLite pour la
+vitesse d'accès. Trois clés critiques (``server_url``,
+``remembered_username``, ``remembered_refresh_token``) sont **également**
+dupliquées dans un fichier JSON du dossier utilisateur
+(:mod:`app.local_config`) pour survivre à une éventuelle suppression /
+corruption de la base SQLite locale.
+
+Cette redondance garantit qu'après le premier lancement, l'application ne
+redemande jamais l'URL du serveur ni les identifiants « Se souvenir de moi ».
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from app import local_config
+from app.database import Database
+from app.logger import get_logger
+from app.utils import EXPORT_DIR, PROJECT_ROOT
+
+logger = get_logger("settings")
+
+_DEFAULTS: dict[str, Any] = {
+    "theme": "dark",
+    "color_theme": "blue",
+    "last_folder": str(PROJECT_ROOT),
+    "window_width": 1280,
+    "window_height": 800,
+    "pdf_folder": str(PROJECT_ROOT / "sample"),
+    "export_folder": str(EXPORT_DIR),
+    "auto_save": True,
+    "server_url": "",
+    "remembered_username": "",
+    "remembered_refresh_token": "",
+    "remembered_hash": "",  # legacy — non utilisé, conservé pour compat.
+}
+
+# Clés répliquées dans le fichier JSON utilisateur.
+_MIRRORED_KEYS: set[str] = {
+    "server_url",
+    "remembered_username",
+    "remembered_refresh_token",
+}
+
+
+class Settings:
+    """Façade typée au-dessus de la table ``settings`` + fichier JSON local."""
+
+    def __init__(self, database: Database) -> None:
+        """Charge les paramètres existants et applique les valeurs par défaut."""
+        self._db = database
+        self._cache: dict[str, Any] = dict(_DEFAULTS)
+        self._load()
+
+    def _load(self) -> None:
+        """Recharge le cache depuis la base ; fallback sur le fichier JSON."""
+        json_mirror = local_config.load()
+        for key, default in _DEFAULTS.items():
+            stored = self._db.get_setting(key)
+            value: Any
+            if stored is None:
+                # Fallback : recuperer depuis le mirror JSON s'il existe.
+                if key in _MIRRORED_KEYS and json_mirror.get(key):
+                    value = json_mirror[key]
+                    self._db.set_setting(key, json.dumps(value))
+                    logger.info(
+                        "Settings: restauration '%s' depuis le fichier JSON.", key,
+                    )
+                else:
+                    self._db.set_setting(key, json.dumps(default))
+                    value = default
+            else:
+                try:
+                    value = json.loads(stored)
+                except json.JSONDecodeError:
+                    value = stored
+                # Réplique la valeur SQLite dans le JSON si manquant.
+                if key in _MIRRORED_KEYS and value and json_mirror.get(key) != value:
+                    local_config.set_value(key, str(value))
+            self._cache[key] = value
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Retourne la valeur d'un paramètre."""
+        return self._cache.get(key, default)
+
+    def set(self, key: str, value: Any) -> None:
+        """Définit et persiste un paramètre (SQLite + JSON pour les clés miroir)."""
+        self._cache[key] = value
+        self._db.set_setting(key, json.dumps(value))
+        if key in _MIRRORED_KEYS:
+            local_config.set_value(key, str(value or ""))
+        logger.debug("Paramètre mis à jour : %s = %s", key, value)
+
+    @property
+    def theme(self) -> str:
+        """Thème d'apparence (``dark`` / ``light`` / ``system``)."""
+        return str(self._cache["theme"])
+
+    @property
+    def color_theme(self) -> str:
+        """Thème de couleur CustomTkinter."""
+        return str(self._cache["color_theme"])
+
+    @property
+    def window_size(self) -> tuple[int, int]:
+        """Dimensions enregistrées de la fenêtre principale."""
+        return int(self._cache["window_width"]), int(self._cache["window_height"])
+
+    @property
+    def pdf_folder(self) -> Path:
+        """Dossier par défaut des PDF à importer."""
+        return Path(str(self._cache["pdf_folder"]))
+
+    @property
+    def export_folder(self) -> Path:
+        """Dossier par défaut des exports."""
+        return Path(str(self._cache["export_folder"]))
+
+    @property
+    def auto_save(self) -> bool:
+        """Indique si la sauvegarde automatique est active."""
+        return bool(self._cache["auto_save"])
+
+    # ------------------------------------------------------------------ #
+    # Configuration serveur REST
+    # ------------------------------------------------------------------ #
+    @property
+    def server_url(self) -> str:
+        """URL du backend FastAPI (ex. ``http://192.168.1.42:8000``)."""
+        return str(self._cache.get("server_url") or "").rstrip("/")
+
+    @server_url.setter
+    def server_url(self, value: str) -> None:
+        """Persiste l'URL du serveur (sans slash final)."""
+        self.set("server_url", (value or "").strip().rstrip("/"))
+
+    # ------------------------------------------------------------------ #
+    # « Se souvenir de moi » — session locale persistée
+    # ------------------------------------------------------------------ #
+    @property
+    def remembered_username(self) -> str:
+        """Retourne le nom d'utilisateur mémorisé (ou chaîne vide)."""
+        return str(self._cache.get("remembered_username") or "")
+
+    @property
+    def remembered_refresh_token(self) -> str:
+        """Refresh token JWT persisté pour l'auto-login (ou chaîne vide)."""
+        return str(self._cache.get("remembered_refresh_token") or "")
+
+    @property
+    def remembered_hash(self) -> str:
+        """Legacy — hash bcrypt de l'ex-mode local (conservé pour purge)."""
+        return str(self._cache.get("remembered_hash") or "")
+
+    def remember(self, username: str, refresh_token: str) -> None:
+        """Persiste la session pour un auto-login au prochain lancement."""
+        self.set("remembered_username", username)
+        self.set("remembered_refresh_token", refresh_token)
+        # Purge du hash bcrypt legacy si présent.
+        if self._cache.get("remembered_hash"):
+            self.set("remembered_hash", "")
+
+    def forget(self) -> None:
+        """Efface la session mémorisée (username + refresh token)."""
+        self.set("remembered_username", "")
+        self.set("remembered_refresh_token", "")
+        self.set("remembered_hash", "")

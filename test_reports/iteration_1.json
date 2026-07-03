@@ -1,0 +1,60 @@
+{
+  "iteration": 1,
+  "date": "2026-01-14",
+  "branch": "V4",
+  "summary": "Correction des 4 bugs V4 signalés par le client",
+  "status": "PASS",
+  "tests_run": 52,
+  "tests_passed": 52,
+  "tests_failed": 0,
+  "changes": [
+    {
+      "file": "bovo/app/remote_services.py",
+      "type": "bug_fix",
+      "description": "Corrigé import: from app.pdf_parser → from app.parser_pdf. Ce bug faisait échouer silencieusement TOUS les imports PDF (rien n'apparaissait dans le calendrier).",
+      "severity": "CRITICAL"
+    },
+    {
+      "file": "bovo/app/remote_services.py",
+      "type": "improvement",
+      "description": "Journal d'import PDF affiche maintenant le nombre d'interventions détectées par fichier, les erreurs par ouvrage, et un message quand un PDF ne contient aucune intervention détectable."
+    },
+    {
+      "file": "bovo/app/local_config.py",
+      "type": "new_module",
+      "description": "Nouveau module de persistance JSON dans %APPDATA%/BovoASF (Windows) ou ~/.config/BovoASF (Linux/macOS). Assure la survie des paramètres critiques (URL serveur, refresh token) même si la base SQLite est effacée."
+    },
+    {
+      "file": "bovo/app/settings.py",
+      "type": "enhancement",
+      "description": "Settings réplique automatiquement server_url, remembered_username, remembered_refresh_token dans le fichier JSON utilisateur. Au démarrage, restauration transparente depuis JSON si la DB est vide."
+    },
+    {
+      "file": "bovo/app/gui.py",
+      "type": "ux_improvement",
+      "description": "Vue Paramètres refactorée en 3 cartes (Apparence, Connexion serveur, Emplacements). Nouveau bouton 'Reconfigurer le serveur'. Fenêtre de connexion agrandie avec un message d'aide sous 'Se souvenir de moi'."
+    },
+    {
+      "file": "bovo-server/docker-compose.yml",
+      "type": "bug_fix",
+      "description": "Remplacé le command YAML folded scalar fragile par un montage de script shell (scripts/backup.sh). Résout l'erreur '/bin/sh: syntax error: unexpected \"|\"' rencontrée sur les postes Windows.",
+      "severity": "HIGH"
+    },
+    {
+      "file": "bovo-server/scripts/backup.sh",
+      "type": "new_file",
+      "description": "Script de sauvegarde robuste avec rotation atomique, logs détaillés, variables d'environnement configurables (BACKUP_KEEP_COUNT, BACKUP_INTERVAL_SECONDS)."
+    },
+    {
+      "file": "bovo/tests/test_v4_fixes.py",
+      "type": "new_tests",
+      "description": "5 nouveaux tests : import PDF sans erreur, roundtrip JSON, mirror SQLite↔JSON, restauration après wipe DB, forget qui vide les deux stores."
+    }
+  ],
+  "test_credentials_file": "/app/memory/test_credentials.md",
+  "notes": [
+    "Cette application est un logiciel desktop CustomTkinter (Windows/Linux/macOS) - pas d'UI web dans /app.",
+    "Les tests unitaires couvrent tous les correctifs. Le test end-to-end GUI nécessite un environnement graphique.",
+    "Le fichier JSON local (bovo_config.json) ne contient que des données non sensibles (URL, username, refresh token JWT). Aucun mot de passe en clair."
+  ]
+}
