@@ -190,7 +190,10 @@ class Exporter:
 
         header_font_size = 9
         cell_font_size = 8.5
-        line_height = cell_font_size + 3
+        # ⚠️ line_height doit être suffisant pour que ``insert_textbox`` ne
+        # renvoie pas de valeur négative (texte tronqué). PyMuPDF requiert
+        # environ 1.6× la taille de police en hauteur utile de rectangle.
+        line_height = cell_font_size + 5
 
         def _content_lines(text: str, width: float) -> int:
             """Estime combien de lignes le texte occupera dans une cellule."""
@@ -220,7 +223,10 @@ class Exporter:
                 page.draw_rect(rect, color=(0.6, 0.6, 0.6), width=0.3)
                 fontsize, color = cell_font_size, (0.05, 0.05, 0.05)
                 fontname = "helv"
-            text_rect = fitz.Rect(x + 3, y + 2, x + w - 2, y + h - 1)
+            # Rect intérieur avec marges plus généreuses (haut/bas) pour
+            # laisser respirer le texte — sinon ``insert_textbox`` renvoie
+            # une valeur négative (texte non rendu).
+            text_rect = fitz.Rect(x + 3, y + 1, x + w - 2, y + h - 1)
             page.insert_textbox(
                 text_rect, text or "", fontsize=fontsize, color=color,
                 fontname=fontname, align=fitz.TEXT_ALIGN_LEFT,
@@ -233,9 +239,9 @@ class Exporter:
                 f"{title} — {format_date_fr(date.today())}",
                 fontsize=14, color=(0.05, 0.05, 0.05), fontname="hebo",
             )
-            # En-tête de tableau.
+            # En-tête de tableau — plus haut pour éviter la troncature.
             x = margin_x
-            header_h = header_font_size + 8
+            header_h = header_font_size + 14  # ex. 23 pt (assez pour "N° Inspection")
             for idx, label in enumerate(headers):
                 _draw_cell(page, x, margin_y, col_widths[idx], header_h,
                            label, header=True)
@@ -249,7 +255,9 @@ class Exporter:
                 _content_lines(padded[i] or "", col_widths[i])
                 for i in range(n_cols)
             )
-            row_h = row_lines * line_height + 4
+            # Hauteur minimum garantie de 20 pt pour qu'``insert_textbox``
+            # ait toujours assez d'espace vertical, quelle que soit la valeur.
+            row_h = max(20.0, row_lines * line_height + 6)
             if y + row_h > page_height - margin_y - 20:
                 page, y = _new_page()
             x = margin_x
