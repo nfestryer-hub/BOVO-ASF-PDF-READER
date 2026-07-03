@@ -624,14 +624,24 @@ class RemoteInspectionService:
         return KPI_UNITS.get(key, "")
 
     def export_pdf(self, sheet: str, destination: Path) -> Path:
-        """Génère un PDF tableur à partir des données API + Exporter local."""
+        """Génère un PDF à partir des données API + Exporter local.
+
+        Pour ``sheet == "rapports"``, utilise la mise en page ASF officielle
+        (4 sections conformes au classeur ASF « Form visites assain
+        V2026-06-01 »). Sinon, mode tableur générique.
+        """
         from app.exporter import Exporter  # import local
+        exporter = Exporter(database=None)  # DB non requise pour le tableur
         rows = self.list_rows(sheet)
+        if sheet == "rapports":
+            from app.inspections import ASF_RAPPORT_SECTIONS
+            return exporter.asf_rapports_to_pdf(
+                ASF_RAPPORT_SECTIONS, rows, destination,
+            )
         columns = ORDERED_COLUMNS[sheet]
         labels = {f.column: f.label for f in FORM_FIELDS[sheet]}
         headers = [labels.get(c, c) for c in columns]
         data_rows = [[(row.get(c) or "") for c in columns] for row in rows]
-        exporter = Exporter(database=None)  # DB non requise pour le tableur
         title = f"Bovo ASF Manager — {SHEET_LABELS[sheet]}"
         return exporter.table_to_pdf(title, headers, data_rows, destination)
 

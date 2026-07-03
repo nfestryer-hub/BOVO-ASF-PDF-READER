@@ -46,7 +46,9 @@ L'application doit aussi être visuellement plus soignée.
 - Documents attachés aux entités.
 - Journal d'activité local + audit trail serveur.
 
-## What's been implemented (Jan 2026 — V4)
+## What's been implemented (Jan 2026 — V4 + ASF layout)
+
+### Correctifs V4 (session 1)
 - **Fix 1** (import PDF) : correction de l'import cassé
   `from app.pdf_parser` → `from app.parser_pdf` dans `remote_services.py`.
 - **Fix 2** (config serveur persistante) :
@@ -57,31 +59,48 @@ L'application doit aussi être visuellement plus soignée.
   - Le dialogue ne s'affiche plus au démarrage tant que l'URL est
     connue (via SQLite OU JSON).
   - Bouton « 🔧 Reconfigurer le serveur » ajouté dans Paramètres.
-- **Fix 3** (Se souvenir de moi) :
-  - Le refresh token JWT est désormais dupliqué dans le JSON utilisateur,
-    ce qui protège contre une perte de la base SQLite locale.
-  - Message informatif ajouté sous la case « Se souvenir de moi » :
-    « Votre session sera reconduite automatiquement pendant 30 jours. »
-- **Fix 4** (`bovo-backup`) :
-  - Remplacement du `command` folded scalar YAML fragile par un script
-    shell séparé `bovo-server/scripts/backup.sh` monté en volume.
-  - Ajout de variables d'environnement configurables
-    (`BACKUP_KEEP_COUNT`, `BACKUP_INTERVAL_SECONDS`).
-  - Logs plus lisibles + rotation atomique (`.tmp` → renommage).
-- **Bonus UX** :
-  - Vue Paramètres refactorée en 3 cartes (Apparence, Serveur,
-    Emplacements) avec `CTkScrollableFrame`.
-  - Affichage de l'URL courante du serveur.
-  - Fenêtre de connexion agrandie (640 px) pour le message d'aide.
-  - Journal d'import PDF affiche maintenant explicitement le nombre
-    d'interventions détectées par fichier + les erreurs par ouvrage.
+- **Fix 3** (Se souvenir de moi) : le refresh token JWT est dupliqué
+  dans le JSON utilisateur, ce qui protège contre une perte de la base
+  SQLite locale.
+- **Fix 4** (`bovo-backup`) : remplacement du `command` folded scalar
+  YAML par un script shell dédié `bovo-server/scripts/backup.sh` monté
+  en volume, avec rotation atomique.
+
+### Mise en page ASF (session 2 — actuelle)
+- **Formulaire Rapport d'inspection en 4 sections ASF** : refonte
+  complète du `RowFormDialog` pour ``sheet == "rapports"``. Affichage
+  horizontal en 4 cartes colorées (rouge / bleu / orange / vert)
+  reprenant exactement la structure du classeur ASF « Form visites
+  assainissement V2026-06-01 » :
+  1. Informations Générales (Identifiant, Date de visite, Prestataire, Inspecteur, N° Inspection, Autoroute, Secteur, Sens)
+  2. Caractéristiques de l'ouvrage (Type d'ouvrage, Type de matériau, Emplacement, Latitude, Longitude, Lien Maps)
+  3. Surveillance générale (Si objet à requalifier, État général de l'ouvrage, Type de défaut, Urgence, Statut)
+  4. Autres documents rattachés à la visite (Commentaires, Photo(s))
+- **Export PDF ASF** : nouvelle méthode
+  ``Exporter.asf_rapports_to_pdf`` qui produit un PDF A3 paysage avec
+  les 4 en-têtes de sections fusionnés + sous-en-têtes de colonnes,
+  matchant visuellement le classeur Excel ASF. Utilisée
+  automatiquement pour l'export du module « Rapports d'inspection ».
+- **Référentiels ASF** : mise à jour de `type` (Caniveau, Collecteur
+  enterré, Cunette, Fossé, Descente d'eau), `type_materiau` (matériaux
+  ASF réels), `emplacement` (nouveau — Haut/Bas de talus, GBA…),
+  `requalif` (5 flags ASF), `etat_cunettes` (5 niveaux ASF).
+- **Vue Inspections modernisée** : bandeau KPIs (4 cartes colorées
+  affichant le nombre par module), sous-titre "conforme au formulaire
+  ASF V2026-06-01", badges colorés pour Statut / Urgence / État
+  général (vert/orange/rouge), état vide illustré.
+- **Vue Paramètres refactorée** : 3 cartes (Apparence, Connexion
+  serveur, Emplacements), avec bouton « Reconfigurer le serveur ».
+- **Login enrichi** : message d'aide sous "Se souvenir de moi" :
+  « Votre session sera reconduite automatiquement pendant 30 jours ».
 
 ## Tests
 - `tests/test_bovo.py` : 41 tests (parser, DB, planner, calendrier, auth…).
 - `tests/test_remember_me.py` : 6 tests (persistance token, auto-login).
-- `tests/test_v4_fixes.py` (**nouveau**) : 5 tests (import PDF, JSON mirror,
-  restauration après effacement DB).
-- **Total : 52 tests, 100 % passing.**
+- `tests/test_v4_fixes.py` : 5 tests (import PDF, JSON mirror, wipe DB).
+- `tests/test_asf_export.py` (**nouveau**) : 3 tests (PDF ASF avec
+  sections, service export routing, format A3 paysage).
+- **Total : 55 tests, 100 % passing.**
 
 ## Backlog / P1
 - Test end-to-end desktop → backend (nécessite un environnement Windows

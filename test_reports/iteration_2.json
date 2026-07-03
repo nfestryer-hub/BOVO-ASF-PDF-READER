@@ -1,0 +1,46 @@
+{
+  "iteration": 2,
+  "date": "2026-01-14",
+  "branch": "V4",
+  "summary": "Mise en page ASF pour Rapport d'inspection (formulaire + PDF export)",
+  "status": "PASS",
+  "tests_run": 55,
+  "tests_passed": 55,
+  "tests_failed": 0,
+  "changes": [
+    {
+      "file": "bovo/app/inspections.py",
+      "type": "enhancement",
+      "description": "Ajout de ASF_RAPPORT_SECTIONS (4 sections structurées : Informations Générales / Caractéristiques / Surveillance générale / Autres documents rattachés). Mise à jour des référentiels ASF : type (Caniveau, Collecteur enterré, Cunette, Fossé, Descente d'eau), type_materiau (matériaux ASF réels), emplacement (nouveau), requalif (5 flags ASF), etat_cunettes (5 niveaux normés). Renommage 'Type' → 'Type d'ouvrage', 'Description' → 'Commentaires', 'Photo' → 'Photo(s)'."
+    },
+    {
+      "file": "bovo/app/gui.py",
+      "type": "ui_redesign",
+      "description": "Refonte du RowFormDialog pour sheet='rapports' : affichage horizontal en 4 cartes colorées (rouge/bleu/orange/vert) reprenant la structure exacte du formulaire ASF Excel V2026-06-01. Vue Inspections enrichie avec bandeau KPIs (compte par module) + sous-titre 'conforme au formulaire ASF' + badges colorés pour Statut/Urgence/État général."
+    },
+    {
+      "file": "bovo/app/exporter.py",
+      "type": "new_method",
+      "description": "Nouvelle méthode Exporter.asf_rapports_to_pdf() : génère un PDF A3 paysage avec les 4 en-têtes de sections fusionnés colorés + sous-en-têtes de colonnes + valeurs. Layout matche visuellement le classeur Excel ASF. Largeurs de colonnes calculées par pondération (long fields = poids 2.4, compact fields = poids 0.85)."
+    },
+    {
+      "file": "bovo/app/remote_services.py",
+      "type": "routing",
+      "description": "RemoteInspectionService.export_pdf() route désormais sheet='rapports' vers asf_rapports_to_pdf (mise en page ASF). Les autres modules restent en tableur générique."
+    },
+    {
+      "file": "bovo/tests/test_asf_export.py",
+      "type": "new_tests",
+      "description": "3 nouveaux tests : PDF ASF contient les 4 en-têtes de sections + valeurs, service export route bien vers ASF pour rapports, format A3 paysage (1191x842 pt)."
+    }
+  ],
+  "visual_validation": {
+    "asf_pdf_sample": "/tmp/asf_final_p0.png",
+    "notes": [
+      "PDF rendu en A3 paysage avec 4 sections colorées : rouge (Informations Générales), bleu (Caractéristiques), orange (Surveillance générale), vert (Autres documents).",
+      "3 rapports d'exemple visibles avec tous les champs correctement placés.",
+      "Text wrapping fonctionne (adresses, descriptions longues, lien Maps).",
+      "Footer avec compte de rapports + auteur."
+    ]
+  }
+}

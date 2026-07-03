@@ -425,25 +425,38 @@ class RowFormDialog(ctk.CTkToplevel):
         label = service.sheet_label(sheet)
         verb = "Modifier" if row_id is not None else "Ajouter"
         self.title(f"{verb} — {label}")
-        self.geometry("560x680")
+        # Formulaire ASF (rapports) : mise en page 4 sections, plus large.
+        if sheet == "rapports":
+            self.geometry("1180x780")
+        else:
+            self.geometry("560x680")
         self.configure(fg_color=SURFACE)
         self.grab_set()
 
         head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
         head.pack(fill="x")
+        title_text = f"{verb} une entrée — {label}"
+        if sheet == "rapports":
+            title_text = (
+                f"{verb} un rapport d'inspection ASF "
+                "— formulaire visites assainissement V2026-06-01"
+            )
         ctk.CTkLabel(
-            head, text=f"{verb} une entrée — {label}",
+            head, text=title_text,
             font=ctk.CTkFont(size=18, weight="bold"), text_color="white",
         ).pack(padx=20, pady=16, anchor="w")
-
-        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=20, pady=10)
 
         existing = service.get_row(sheet, row_id) if row_id is not None else {}
         if row_id is None and sheet == "rapports":
             existing = service.prefill_rapport()
-        for field in service.form_fields(sheet):
-            self._build_field(body, field, (existing or {}).get(field.column, ""))
+
+        if sheet == "rapports":
+            self._build_asf_sections(existing or {})
+        else:
+            body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+            body.pack(fill="both", expand=True, padx=20, pady=10)
+            for field in service.form_fields(sheet):
+                self._build_field(body, field, (existing or {}).get(field.column, ""))
 
         if sheet == "inspections":
             self._wire_inspections_autocalc()
@@ -459,6 +472,104 @@ class RowFormDialog(ctk.CTkToplevel):
             text_color=("black", "white"), height=42, width=120,
             command=self.destroy,
         ).pack(side="left", padx=(10, 0))
+
+    # ------------------------------------------------------------------ #
+    # Mise en page ASF (rapports d'inspection)
+    # ------------------------------------------------------------------ #
+    def _build_asf_sections(self, existing: dict[str, str]) -> None:
+        """Construit le formulaire rapport en 4 sections ASF horizontales.
+
+        Chaque section est une carte verticale (Informations Générales,
+        Caractéristiques de l'ouvrage, Surveillance générale, Autres
+        documents). L'ensemble est encapsulé dans un ``CTkScrollableFrame``
+        horizontal + vertical au cas où l'écran serait limité.
+        """
+        from app.inspections import ASF_RAPPORT_SECTIONS
+
+        # Index rapide {column → FieldSpec} pour retrouver widget/référentiel.
+        field_index: dict[str, FieldSpec] = {
+            f.column: f for f in self._service.form_fields("rapports")
+        }
+
+        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=16, pady=8)
+
+        columns = ctk.CTkFrame(body, fg_color="transparent")
+        columns.pack(fill="both", expand=True)
+        # Une colonne par section, poids égal.
+        for i in range(len(ASF_RAPPORT_SECTIONS)):
+            columns.grid_columnconfigure(i, weight=1, uniform="asf")
+        columns.grid_rowconfigure(0, weight=1)
+
+        # Couleurs d'accent ASF pour chaque section (cohérence avec l'Excel).
+        section_colors = ["#E63946", "#457B9D", "#F4A261", "#2A9D8F"]
+
+        for idx, (section_title, fields) in enumerate(ASF_RAPPORT_SECTIONS):
+            color = section_colors[idx % len(section_colors)]
+            card = ctk.CTkFrame(columns, fg_color=CARD_BG, corner_radius=12)
+            card.grid(row=0, column=idx, sticky="nsew", padx=6, pady=4)
+
+            # En-tête de section coloré (comme les cellules fusionnées Excel).
+            header = ctk.CTkFrame(card, fg_color=color, corner_radius=0, height=42)
+            header.pack(fill="x")
+            header.pack_propagate(False)
+            ctk.CTkLabel(
+                header, text=section_title, text_color="white",
+                font=ctk.CTkFont(size=13, weight="bold"),
+            ).pack(padx=12, pady=10, anchor="w")
+
+            content = ctk.CTkFrame(card, fg_color="transparent")
+            content.pack(fill="both", expand=True, padx=12, pady=10)
+
+            for column, label_text in fields:
+                field_spec = field_index.get(column)
+                if field_spec is None:
+                    continue
+                # Override du libellé pour matcher les intitulés ASF.
+                labelled = FieldSpec(
+                    column=field_spec.column,
+                    label=label_text,
+                    widget=field_spec.widget,
+                    ref_key=field_spec.ref_key,
+                )
+                self._build_asf_field(content, labelled, existing.get(column, ""))
+
+    def _build_asf_field(
+        self, master: ctk.CTkBaseClass, field: FieldSpec, value: str,
+    ) -> None:
+        """Construit un champ ASF (label empilé au-dessus du widget, verticalement)."""
+        wrapper = ctk.CTkFrame(master, fg_color="transparent")
+        wrapper.pack(fill="x", pady=(0, 10))
+        ctk.CTkLabel(
+            wrapper, text=field.label, anchor="w",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color=("#333333", "#DDDDDD"),
+        ).pack(fill="x", pady=(0, 2))
+
+        if field.widget == "choice":
+            options = ["—", *self._service.referentiel(field.ref_key)]
+            var = ctk.StringVar(value=value if value in options else "—")
+            ctk.CTkOptionMenu(
+                wrapper, values=options, variable=var, height=32,
+                fg_color=ACCENT, button_color=ACCENT_HOVER, dropdown_hover_color=ACCENT,
+            ).pack(fill="x")
+            self._widgets[field.column] = var
+        elif field.widget == "long":
+            box = ctk.CTkTextbox(wrapper, height=70)
+            box.pack(fill="x")
+            box.insert("1.0", value)
+            self._widgets[field.column] = box
+        else:
+            display = value
+            if field.widget == "date" and value:
+                display = format_date_fr(parse_iso_date(value)) or value
+            var = ctk.StringVar(value=display)
+            placeholder = "JJ/MM/AAAA" if field.widget == "date" else ""
+            ctk.CTkEntry(
+                wrapper, textvariable=var, placeholder_text=placeholder,
+                height=32,
+            ).pack(fill="x")
+            self._widgets[field.column] = var
 
     def _build_field(
         self, master: ctk.CTkBaseClass, field: FieldSpec, value: str
@@ -1585,22 +1696,57 @@ class BovoApp(ctk.CTk):
         frame = ctk.CTkFrame(self._content, fg_color="transparent")
         frame.grid(row=0, column=0, sticky="nsew")
         frame.grid_columnconfigure(0, weight=1)
-        frame.grid_rowconfigure(1, weight=1)
+        frame.grid_rowconfigure(2, weight=1)
 
         header = ctk.CTkFrame(frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        title_box = ctk.CTkFrame(header, fg_color="transparent")
+        title_box.pack(side="left")
         ctk.CTkLabel(
-            header, text="Inspections ASF (ITV)",
-            font=ctk.CTkFont(size=24, weight="bold"),
-        ).pack(side="left")
+            title_box, text="Inspections ASF (ITV)",
+            font=ctk.CTkFont(size=26, weight="bold"),
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            title_box,
+            text="Mise en page conforme au formulaire ASF « Visites assainissement V2026-06-01 »",
+            text_color="#8A8A90", font=ctk.CTkFont(size=12),
+        ).pack(anchor="w")
         if self._can("edit"):
             ctk.CTkButton(
                 header, text="📊  Importer le classeur Excel", fg_color="#43AA8B",
-                hover_color="#369072", command=self._import_workbook,
+                hover_color="#369072", height=40,
+                command=self._import_workbook,
             ).pack(side="right")
 
+        # Barre de KPIs ASF (compte par module) — grand bandeau lisible.
+        stats_bar = ctk.CTkFrame(frame, fg_color=CARD_BG, corner_radius=12)
+        stats_bar.grid(row=1, column=0, sticky="ew", pady=(6, 14))
+        self._module_stat_labels: dict[str, ctk.CTkLabel] = {}
+        colors = {"inspections": ACCENT, "rapports": "#457B9D",
+                  "incidents": "#F4A261", "materiel": "#2A9D8F"}
+        for i, sheet in enumerate(self._inspections.SHEETS):
+            box = ctk.CTkFrame(stats_bar, fg_color="transparent")
+            box.grid(row=0, column=i, padx=18, pady=14, sticky="w")
+            stats_bar.grid_columnconfigure(i, weight=1)
+            color = colors.get(sheet, ACCENT)
+            ctk.CTkFrame(
+                box, fg_color=color, width=6, height=42, corner_radius=3
+            ).pack(side="left", padx=(0, 12))
+            info = ctk.CTkFrame(box, fg_color="transparent")
+            info.pack(side="left")
+            count_lbl = ctk.CTkLabel(
+                info, text="0", anchor="w",
+                font=ctk.CTkFont(size=22, weight="bold"),
+            )
+            count_lbl.pack(anchor="w")
+            ctk.CTkLabel(
+                info, text=self._inspections.sheet_label(sheet),
+                text_color="#8A8A90", font=ctk.CTkFont(size=11), anchor="w",
+            ).pack(anchor="w")
+            self._module_stat_labels[sheet] = count_lbl
+
         tabview = ctk.CTkTabview(frame, fg_color=CARD_BG)
-        tabview.grid(row=1, column=0, sticky="nsew")
+        tabview.grid(row=2, column=0, sticky="nsew")
 
         self._insp_search: dict[str, ctk.StringVar] = {}
         self._insp_tables: dict[str, ctk.CTkScrollableFrame] = {}
@@ -1668,6 +1814,11 @@ class BovoApp(ctk.CTk):
         columns = self._inspections.list_columns(sheet)
         rows = self._inspections.list_rows(sheet, self._insp_search[sheet].get().strip())
 
+        # Met à jour le compteur affiché dans la barre de KPIs.
+        stat_lbl = getattr(self, "_module_stat_labels", {}).get(sheet)
+        if stat_lbl is not None:
+            stat_lbl.configure(text=str(len(rows)))
+
         head = ctk.CTkFrame(table, fg_color=CARD_BG, corner_radius=8)
         head.pack(fill="x", pady=(0, 4))
         for _col, label in columns:
@@ -1678,10 +1829,21 @@ class BovoApp(ctk.CTk):
         ctk.CTkLabel(head, text="", width=80).pack(side="left")
 
         if not rows:
+            empty = ctk.CTkFrame(table, fg_color=SURFACE, corner_radius=10)
+            empty.pack(fill="x", pady=20)
             ctk.CTkLabel(
-                table, text="Aucune donnée. Cliquez « Ajouter » ou importez le classeur.",
-                text_color="#9A9AA0",
-            ).pack(anchor="w", pady=20)
+                empty, text="🗂️", font=ctk.CTkFont(size=32),
+            ).pack(pady=(16, 4))
+            ctk.CTkLabel(
+                empty,
+                text="Aucune donnée dans ce module.",
+                text_color="#9A9AA0", font=ctk.CTkFont(size=13, weight="bold"),
+            ).pack()
+            ctk.CTkLabel(
+                empty,
+                text="Cliquez sur « ➕ Ajouter » ou importez le classeur Excel ASF.",
+                text_color="#7A7A80", font=ctk.CTkFont(size=11),
+            ).pack(pady=(2, 16))
             return
 
         for row in rows:
@@ -1692,19 +1854,42 @@ class BovoApp(ctk.CTk):
     ) -> None:
         """Construit une ligne de table de module (éditable + suppression)."""
         container = ctk.CTkFrame(
-            self._insp_tables[sheet], fg_color=SURFACE, height=40, corner_radius=8
+            self._insp_tables[sheet], fg_color=SURFACE, height=44, corner_radius=8,
+            border_width=0,
         )
-        container.pack(fill="x", pady=2)
+        container.pack(fill="x", pady=3)
         row_id = int(row["id"])
         handler = lambda _e=None, sh=sheet, rid=row_id: self._open_row_form(sh, rid)  # noqa: E731
         if self._can("edit"):
             container.bind("<Button-1>", handler)
+        # Couleurs par statut / urgence / etat_cunettes (badges lisibles).
+        _STATUS_COLORS = {
+            "Terminée": "#2A9D8F", "En cours": "#F4A261",
+            "Planifiée": "#457B9D", "À faire": "#8A8A90", "Annulée": "#E63946",
+            "Pas de défaut": "#2A9D8F", "Non évolutif": "#457B9D",
+            "Evolution normale": "#F4A261", "Défauts majeurs": "#E63946",
+            "Non visitable": "#8A8A90",
+            "Aucune": "#2A9D8F", "Moindre": "#457B9D",
+            "Moyenne": "#F4A261", "Elevée": "#E63946", "Très elevée": "#E63946",
+        }
         for col, _label in columns:
             value = row.get(col, "") or "—"
             if col == "date":
                 value = format_date_fr(parse_iso_date(row.get(col))) or value
+            # Badges colorés pour les colonnes de statut/urgence/état.
+            if col in ("statut", "urgence", "etat_cunettes") and value != "—":
+                color = _STATUS_COLORS.get(value, ACCENT)
+                badge = ctk.CTkLabel(
+                    container, text=f"  {value}  ", width=150,
+                    fg_color=color, text_color="white", corner_radius=6,
+                    font=ctk.CTkFont(size=11, weight="bold"),
+                )
+                badge.pack(side="left", padx=6, pady=8)
+                if self._can("edit"):
+                    badge.bind("<Button-1>", handler)
+                continue
             label = ctk.CTkLabel(
-                container, text=str(value)[:24], width=150, anchor="w",
+                container, text=str(value)[:28], width=150, anchor="w",
                 font=ctk.CTkFont(size=12),
             )
             label.pack(side="left", padx=6, pady=8)

@@ -101,26 +101,26 @@ FORM_FIELDS: dict[str, list[FieldSpec]] = {
         FieldSpec("observations", "Observations", "long"),
     ],
     "rapports": [
-        FieldSpec("date", "Date", "date"),
-        FieldSpec("identifiant", "Identifiant (Ouvrage)", "text"),
+        FieldSpec("date", "Date de visite", "date"),
+        FieldSpec("identifiant", "Identifiant", "text"),
         FieldSpec("n_inspection", "N° Inspection", "text"),
         FieldSpec("prestataire", "Prestataire", "text"),
         FieldSpec("inspecteur", "Inspecteur", "choice", "operateurs_itv"),
         FieldSpec("autoroute", "Autoroute", "choice", "autoroutes"),
-        FieldSpec("type_ouvrage", "Type", "choice", "type"),
+        FieldSpec("type_ouvrage", "Type d'ouvrage", "choice", "type"),
         FieldSpec("secteur", "Secteur", "choice", "secteur"),
         FieldSpec("sens", "Sens", "text"),
-        FieldSpec("emplacement", "Emplacement", "text"),
+        FieldSpec("emplacement", "Emplacement", "choice", "emplacement"),
         FieldSpec("type_materiau", "Type de matériau", "choice", "type_materiau"),
         FieldSpec("latitude", "Latitude", "text"),
         FieldSpec("longitude", "Longitude", "text"),
         FieldSpec("lien_maps", "Lien Maps", "text"),
         FieldSpec("requalif", "Si objet à requalifier", "choice", "requalif"),
-        FieldSpec("etat_cunettes", "État général des cunettes", "choice", "etat_cunettes"),
+        FieldSpec("etat_cunettes", "État général de l'ouvrage", "choice", "etat_cunettes"),
         FieldSpec("type_defaut", "Type de défaut", "text"),
         FieldSpec("urgence", "Urgence", "choice", "urgence"),
-        FieldSpec("description", "Description", "long"),
-        FieldSpec("photo", "Photo", "text"),
+        FieldSpec("description", "Commentaires", "long"),
+        FieldSpec("photo", "Photo(s)", "text"),
         FieldSpec("statut", "Statut", "text"),
     ],
     "incidents": [
@@ -148,10 +148,57 @@ FORM_FIELDS: dict[str, list[FieldSpec]] = {
 # Colonnes affichées dans les tableaux récapitulatifs de chaque module.
 LIST_COLUMNS: dict[str, list[str]] = {
     "inspections": ["n_inspection", "date", "autoroute", "secteur", "ml_inspectes", "operateur"],
-    "rapports": ["date", "identifiant", "autoroute", "type_ouvrage", "secteur", "urgence"],
+    "rapports": ["date", "identifiant", "type_ouvrage", "autoroute", "secteur", "etat_cunettes", "urgence"],
     "incidents": ["date", "autoroute", "pk", "type_incident", "impact"],
     "materiel": ["date", "camera", "vehicule", "panne", "entretien"],
 }
+
+# Découpage du formulaire "Rapport d'inspection" en 4 sections ASF
+# (basé sur le classeur ASF "Form visites assain V2026-06-01.xlsx").
+# Chaque section = (titre, [(colonne_db, libellé)]).
+ASF_RAPPORT_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
+    (
+        "Informations Générales",
+        [
+            ("identifiant", "Identifiant"),
+            ("date", "Date de visite"),
+            ("prestataire", "Prestataire"),
+            ("inspecteur", "Inspecteur"),
+            ("n_inspection", "N° Inspection"),
+            ("autoroute", "Autoroute"),
+            ("secteur", "Secteur"),
+            ("sens", "Sens"),
+        ],
+    ),
+    (
+        "Caractéristiques de l'ouvrage",
+        [
+            ("type_ouvrage", "Type d'ouvrage"),
+            ("type_materiau", "Type de matériau"),
+            ("emplacement", "Emplacement"),
+            ("latitude", "Latitude"),
+            ("longitude", "Longitude"),
+            ("lien_maps", "Lien Maps"),
+        ],
+    ),
+    (
+        "Surveillance générale",
+        [
+            ("requalif", "Si objet à requalifier"),
+            ("etat_cunettes", "État général de l'ouvrage"),
+            ("type_defaut", "Type de défaut"),
+            ("urgence", "Urgence"),
+            ("statut", "Statut"),
+        ],
+    ),
+    (
+        "Autres documents rattachés à la visite",
+        [
+            ("description", "Commentaires"),
+            ("photo", "Photo(s)"),
+        ],
+    ),
+]
 
 # Listes de référence par défaut (utilisées tant que le classeur n'est pas importé).
 DEFAULT_REFERENTIEL: dict[str, list[str]] = {
@@ -164,18 +211,35 @@ DEFAULT_REFERENTIEL: dict[str, list[str]] = {
     "choix_jour": ["Jour", "Nuit"],
     "secteur": ["Midi Toulousain", "Garonne", "Agen", "Quercy"],
     "autoroutes": ["A61", "A66", "A68", "A62", "A20", "A64"],
-    "type": ["CA", "OH", "DE"],
-    "type_materiau": ["Enherbé", "Métallique", "Mixte", "Béton", "Autre"],
+    # Types d'ouvrage ASF (formulaire visites assainissement V2026-06-01).
+    "type": [
+        "Caniveau", "Collecteur enterré", "Cunette", "Fossé",
+        "Descente d'eau", "CA", "OH", "DE",
+    ],
+    "type_materiau": [
+        "Enherbé", "Métallique", "Mixte", "Béton",
+        "Cunette revêtue - béton", "Cunette revêtue - autre matériau",
+        "Cunette non revêtue",
+        "Fossé revêtu – béton", "Fossé revêtu – autre matériau",
+        "Fossé non revêtu",
+        "Descente d'eau enterrée", "Descente d'eau superficielle",
+        "Caniveau à fente", "Caniveau à grille",
+        "Caniveau ouvert", "Caniveau recouvert",
+        "Collecteur enterré",
+        "Autre",
+    ],
+    "emplacement": [
+        "Haut de talus", "Bande dérasée", "Derrière GBA",
+        "Derrière glissière", "Bas de talus", "Autre",
+    ],
     "urgence": ["Aucune", "Moindre", "Moyenne", "Elevée", "Très elevée"],
     "requalif": [
-        "Non", "Cunette revêtue - Béton", "Cunette revêtue - autre matériau",
-        "Cunette non revêtue", "Fossé revêtu - Béton",
-        "Fossé revêtu - Autre matériau", "Fossé non revêtu",
-        "Descente d'eau enterrée", "Descente d'eau superficielle",
-        "Collecteur enterré", "Caniveau ouvert", "Caniveau à fente",
+        "Non", "Caniveau à requalifier", "Cunette à requalifier",
+        "Fossé à requalifier", "Descente d'eau à requalifier",
+        "Collecteur enterré à requalifier",
     ],
     "etat_cunettes": [
-        "Pas de défauts", "Non évolutif", "Evolution normale",
+        "Pas de défaut", "Non évolutif", "Evolution normale",
         "Défauts majeurs", "Non visitable",
     ],
     "camera": ["IBAK Orpheus 2", "IBAK Nano", "IBAK Nano L", "IBAK Orion 3"],
@@ -432,24 +496,26 @@ class InspectionService:
     # Export PDF (mode tableur) d'un module ASF
     # ------------------------------------------------------------------ #
     def export_pdf(self, sheet: str, destination: Path) -> Path:
-        """Exporte toutes les lignes d'un module ASF dans un PDF tableur.
+        """Exporte toutes les lignes d'un module ASF dans un PDF.
 
-        Args:
-            sheet: Clé de module (``inspections``, ``rapports`` …).
-            destination: Chemin du PDF cible.
+        Pour ``sheet == "rapports"``, utilise la mise en page ASF officielle
+        (4 sections colorées : Informations Générales / Caractéristiques /
+        Surveillance / Autres documents), conforme au classeur
+        ``Form visites assain V2026-06-01.xlsx``.
 
-        Returns:
-            Le chemin du PDF généré.
+        Pour les autres modules, utilise le mode tableur générique.
         """
         from app.exporter import Exporter  # import local pour éviter le cycle
         exporter = Exporter(self._db)
+        rows_data = self._db.list_generic(sheet)
+        if sheet == "rapports":
+            return exporter.asf_rapports_to_pdf(
+                ASF_RAPPORT_SECTIONS, rows_data, destination,
+            )
         columns = ORDERED_COLUMNS[sheet]
         labels = {f.column: f.label for f in FORM_FIELDS[sheet]}
         headers = [labels.get(c, c) for c in columns]
-        rows = [
-            [(row.get(c, "") or "") for c in columns]
-            for row in self._db.list_generic(sheet)
-        ]
+        rows = [[(row.get(c, "") or "") for c in columns] for row in rows_data]
         title = f"Bovo ASF Manager — {SHEET_LABELS[sheet]}"
         return exporter.table_to_pdf(title, headers, rows, destination)
 
