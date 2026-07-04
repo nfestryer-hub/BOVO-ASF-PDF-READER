@@ -38,10 +38,27 @@ async def lifespan(_app: FastAPI):
     import asyncio
 
     from app.events import broadcaster
+    from app.models import Role
+    from sqlalchemy import text
 
     broadcaster.bind_loop(asyncio.get_running_loop())
     logger.info("Initialisation du schéma PostgreSQL…")
     Base.metadata.create_all(bind=engine)
+    # ------------------------------------------------------------------ #
+    # Migration V1.2 : ajoute les valeurs manquantes de l'enum ``role``
+    # (par ex. ``Inspecteur ITV`` introduite en V1.2). ``ALTER TYPE ADD
+    # VALUE`` est idempotent grâce à ``IF NOT EXISTS`` (Postgres ≥ 9.6).
+    # ------------------------------------------------------------------ #
+    with engine.connect() as conn:
+        for role in Role:
+            try:
+                conn.execute(text(
+                    f"ALTER TYPE role ADD VALUE IF NOT EXISTS '{role.value}'"
+                ))
+                conn.commit()
+            except Exception as exc:  # noqa: BLE001 - migration best-effort
+                logger.warning("Migration enum role '%s' : %s", role.value, exc)
+                conn.rollback()
     with SessionLocal() as session:
         seed_admin(session)
     logger.info("Serveur prêt (Bovo ASF Manager v%s).", __version__)

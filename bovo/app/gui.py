@@ -1797,7 +1797,7 @@ class BovoApp(ctk.CTk):
             ).pack(side="left", padx=4)
         # Fiche par intervention — imprimable, 1 page par intervention.
         ctk.CTkButton(
-            exports, text="🖨️  Fiches planning (imprimable)", width=220,
+            exports, text="🖨️  Fiches planning (sélection)", width=220,
             fg_color="#457B9D", hover_color="#35617D",
             command=self._export_intervention_fiches,
         ).pack(side="left", padx=(20, 4))
@@ -1956,19 +1956,45 @@ class BovoApp(ctk.CTk):
             messagebox.showinfo("Suppression terminée", msg)
 
     def _export_intervention_fiches(self) -> None:
-        """Exporte une fiche PDF imprimable par intervention (1 page = 1 fiche)."""
-        interventions = self._planner.list_all(**self._current_filters())
-        if not interventions:
+        """Exporte une fiche PDF imprimable **pour les interventions sélectionnées**.
+
+        Depuis V1.2, seules les lignes cochées (case en début de rangée) sont
+        exportées — évite de générer 300 pages par mégarde. Si aucune ligne
+        n'est cochée, l'utilisateur est invité à faire une sélection.
+        """
+        # Récupère les IDs cochés (BooleanVar True).
+        selected_ids = [
+            iid for iid, var in getattr(self, "_iv_selection", {}).items()
+            if var.get()
+        ]
+        if not selected_ids:
             messagebox.showinfo(
-                "Aucune intervention",
-                "La liste filtrée est vide — aucune fiche à générer.",
+                "Aucune sélection",
+                "Cochez d'abord les interventions à imprimer (colonne de "
+                "gauche), puis relancez l'export « 🖨️ Fiches planning ».",
+            )
+            return
+        # Résout les objets Intervention correspondants.
+        interventions: list[Intervention] = []
+        for iid in selected_ids:
+            try:
+                iv = self._planner.get(iid)
+            except Exception:  # noqa: BLE001 - une entrée manquante ne bloque pas
+                iv = None
+            if iv is not None:
+                interventions.append(iv)
+        if not interventions:
+            messagebox.showwarning(
+                "Aucune fiche générée",
+                "Les interventions sélectionnées n'ont pas pu être chargées "
+                "depuis le serveur. Vérifiez votre connexion et réessayez.",
             )
             return
         path = filedialog.asksaveasfilename(
             title="Exporter les fiches d'intervention (imprimable)",
             initialdir=str(self._settings.export_folder),
             defaultextension=".pdf",
-            initialfile="fiches_planning.pdf",
+            initialfile=f"fiches_planning_{len(interventions)}.pdf",
             filetypes=[("PDF", "*.pdf")],
         )
         if not path:

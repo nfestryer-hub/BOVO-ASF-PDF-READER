@@ -269,3 +269,13 @@ class Planner:
                 entity_id=str(intervention_id),
                 before=before.to_row() if before else {}, after={},
             )
+
+    def get(self, intervention_id: int) -> Intervention | None:
+        """Retourne une intervention par son ID (ou ``None`` si absente).
+
+        Ajouté en V1.2 pour aligner l'API du :class:`Planner` local sur
+        celle du :class:`RemotePlanner`, utilisée notamment par la fiche
+        d'intervention imprimable (charge chaque ligne cochée par ID).
+        """
+        return self._db.get_intervention_by_id(intervention_id)
+
