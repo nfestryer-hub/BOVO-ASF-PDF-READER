@@ -18,7 +18,7 @@ import threading
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import Canvas, filedialog, messagebox
 from typing import Any
 
 import customtkinter as ctk
@@ -405,7 +405,7 @@ class RowFormDialog(ctk.CTkToplevel):
     def __init__(
         self,
         master: ctk.CTk,
-        service: InspectionService,
+        service: RemoteInspectionService,
         sheet: str,
         row_id: int | None,
         on_saved: Callable[[], None],
@@ -1598,7 +1598,8 @@ class BovoApp(ctk.CTk):
         tabview.grid(row=1, column=0, sticky="nsew")
 
         self._insp_search: dict[str, ctk.StringVar] = {}
-        self._insp_tables: dict[str, ctk.CTkScrollableFrame] = {}
+        self._insp_tables: dict[str, ctk.CTkFrame] = {}
+        self._insp_canvases: dict[str, Canvas] = {}
         for sheet in self._inspections.SHEETS:
             tab = tabview.add(self._inspections.sheet_label(sheet))
             tab.grid_columnconfigure(0, weight=1)
@@ -1607,7 +1608,12 @@ class BovoApp(ctk.CTk):
             self._refresh_module(sheet)
 
     def _build_module_tab(self, parent: ctk.CTkBaseClass, sheet: str) -> None:
-        """Construit la barre d'outils et la table d'un module ASF."""
+        """Construit la barre d'outils et la table d'un module ASF.
+
+        Le tableau supporte le défilement à la fois vertical ET horizontal
+        (indispensable quand les feuilles ASF ont beaucoup de colonnes,
+        ex. Rapports d'inspection avec 21 colonnes).
+        """
         toolbar = ctk.CTkFrame(parent, fg_color="transparent")
         toolbar.grid(row=0, column=0, sticky="ew", pady=8)
         search_var = ctk.StringVar()
@@ -1629,9 +1635,62 @@ class BovoApp(ctk.CTk):
                 command=lambda sh=sheet: self._open_row_form(sh, None),
             ).pack(side="right", padx=4)
 
-        table = ctk.CTkScrollableFrame(parent, fg_color="transparent")
-        table.grid(row=1, column=0, sticky="nsew")
-        self._insp_tables[sheet] = table
+        # Zone de tableau scrollable dans les deux axes -------------------
+        outer = ctk.CTkFrame(parent, fg_color="transparent")
+        outer.grid(row=1, column=0, sticky="nsew")
+        outer.grid_rowconfigure(0, weight=1)
+        outer.grid_columnconfigure(0, weight=1)
+
+        canvas = Canvas(
+            outer,
+            # Canvas est un widget tk pur : il n'accepte pas les tuples
+            # light/dark de CTk, on choisit donc le mode courant.
+            bg=(CARD_BG[1] if ctk.get_appearance_mode() == "Dark" else CARD_BG[0]),
+            highlightthickness=0, borderwidth=0,
+        )
+        canvas.grid(row=0, column=0, sticky="nsew")
+
+        vbar = ctk.CTkScrollbar(outer, orientation="vertical", command=canvas.yview)
+        vbar.grid(row=0, column=1, sticky="ns")
+        hbar = ctk.CTkScrollbar(outer, orientation="horizontal", command=canvas.xview)
+        hbar.grid(row=1, column=0, sticky="ew")
+        canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+
+        inner = ctk.CTkFrame(canvas, fg_color="transparent")
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_config(_event: Any = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        inner.bind("<Configure>", _on_inner_config)
+
+        def _on_canvas_config(event: Any) -> None:
+            # On laisse l'inner s'étirer horizontalement seulement s'il est
+            # plus petit que le canvas — sinon on conserve sa largeur
+            # naturelle pour permettre le défilement horizontal.
+            req = inner.winfo_reqwidth()
+            width = max(event.width, req)
+            canvas.itemconfigure(inner_id, width=width)
+
+        canvas.bind("<Configure>", _on_canvas_config)
+
+        # Molette : verticale par défaut ; horizontale avec Shift ---------
+        def _on_mousewheel(event: Any, axis: str = "y") -> None:
+            delta = -1 if event.delta > 0 else 1
+            if hasattr(event, "num") and event.num in (4, 5):
+                delta = -1 if event.num == 4 else 1
+            if axis == "x":
+                canvas.xview_scroll(delta, "units")
+            else:
+                canvas.yview_scroll(delta, "units")
+
+        canvas.bind("<MouseWheel>", lambda e: _on_mousewheel(e, "y"))
+        canvas.bind("<Shift-MouseWheel>", lambda e: _on_mousewheel(e, "x"))
+        canvas.bind("<Button-4>", lambda e: _on_mousewheel(e, "y"))
+        canvas.bind("<Button-5>", lambda e: _on_mousewheel(e, "y"))
+
+        self._insp_tables[sheet] = inner
+        self._insp_canvases[sheet] = canvas
 
     def _export_module_pdf(self, sheet: str) -> None:
         """Exporte un module ASF au format PDF tableur (paysage)."""

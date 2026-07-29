@@ -1,0 +1,33 @@
+{
+  "summary": "Backend/desktop-GUI validation of BUG FIX #1 (Excel header-based import with new 'ID' column) and BUG FIX #2 (horizontal scrollbar on ASF module tables via tkinter.Canvas + CTkScrollbar). All acceptance criteria green: new asf.xlsx imports with id_ouvrage='21764' on row 1; old Classeur_ASF.xlsx still parses via header-based aliases (test_import_workbook_real regards=56 PASSED); Canvas scrollregion width=2996px > visible width (~970px) with xview/yview both wired; pytest 47/47 PASS; remember-me GUI script AUTO-LOGIN OK; smoke_test_gui.py *** SMOKE TEST OK ***.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/bovo/tests/test_bovo.py",
+    "/app/bovo/tests/test_remember_me.py",
+    "/app/.testenv/smoke_test_gui.py",
+    "/app/.testenv/repro_remember_gui.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Import _import_sheet header-based avec normalisation d'accents/espaces + aliases 'ID'->id_ouvrage fonctionne correctement : nouveau classeur (18 cols avec ID) et ancien (17 cols sans ID) importent tous deux sans régression.",
+    "tkinter.Canvas + CTkScrollbar H/V correctement branchés via xscrollcommand/yscrollcommand ; scrollregion recalculée automatiquement (2996x116 sur inspections). Molette V par défaut + Shift+molette H : OK.",
+    "Cohabitation locale/Remote services toujours présente (héritage iter précédente) — non bloquant."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100% (desktop GUI smoke)"},
+  "test_credentials": "Admin: Bovo/ibak23 (backend seed).",
+  "seed_data_creation": "Aucun seed additionnel — admin seedé au démarrage backend.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend uvicorn tourne sur 127.0.0.1:8765 (Postgres :5433). Toutes les acceptances des 2 bug fixes sont vertes. Nouveau classeur /app/.testenv/asf.xlsx (18 cols, ID en pos 4) et ancien /app/bovo/sample/Classeur_ASF.xlsx (17 cols) importent tous deux correctement grâce à _import_sheet header-based. Scroll H+V sur les modules ASF via tkinter.Canvas (les CTkScrollableFrame étaient limités au scroll V uniquement).",
+  "verification_results": {
+    "bug_fix_1_new_workbook": "PASS — id_ouvrage='21764' sur 1re ligne inspections après import de /app/.testenv/asf.xlsx (10 inspections, 10 rapports, 2 incidents, 10 materiel importés)",
+    "bug_fix_1b_old_workbook": "PASS — test_bovo.py::test_import_workbook_real (regards='56') PASSED, rétro-compat header-based+aliases OK",
+    "bug_fix_2_scroll_h": "PASS — Canvas sheet='inspections' scrollregion='0 0 2996 116', xview=(0.0, 0.3234) => scroll H disponible, xscrollcommand+yscrollcommand branchés",
+    "pytest_47_47": "PASS (47 passed in 8.69s)",
+    "smoke_test_gui": "PASS *** SMOKE TEST OK ***",
+    "remember_me_repro": "PASS *** REMEMBER-ME OK *** (AUTO-LOGIN Bovo/Admin)"
+  }
+}

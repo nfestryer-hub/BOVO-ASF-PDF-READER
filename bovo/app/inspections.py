@@ -44,7 +44,8 @@ class FieldSpec:
 # Colonnes des tables, dans l'ordre exact des colonnes du classeur Excel.
 ORDERED_COLUMNS: dict[str, list[str]] = {
     "inspections": [
-        "n_inspection", "date", "jour_nuit", "autoroute", "secteur",
+        "n_inspection", "date", "jour_nuit", "id_ouvrage",
+        "autoroute", "secteur",
         "pk_depart", "pk_arrivee", "ml_inspectes", "nb_regards",
         "heure_debut", "heure_fin", "heures_totales", "ml_h",
         "operateur", "coequipier", "meteo", "observations",
@@ -86,6 +87,7 @@ FORM_FIELDS: dict[str, list[FieldSpec]] = {
         FieldSpec("n_inspection", "N° Inspection", "text"),
         FieldSpec("date", "Date", "date"),
         FieldSpec("jour_nuit", "Jour/Nuit", "choice", "choix_jour"),
+        FieldSpec("id_ouvrage", "ID Ouvrage", "text"),
         FieldSpec("autoroute", "Autoroute", "choice", "autoroutes"),
         FieldSpec("secteur", "Secteur", "choice", "secteur"),
         FieldSpec("pk_depart", "PK Départ", "text"),
@@ -214,6 +216,28 @@ def _to_float(value: str) -> float:
         return float(str(value).replace(",", "."))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _norm_label(s: str) -> str:
+    """Normalise un libellé de colonne pour comparaison souple.
+
+    Enlève accents, espaces multiples, ponctuation et casse pour matcher
+    ``État général des cunettes`` avec ``Etat général des cunettes ``.
+    """
+    import unicodedata
+    n = unicodedata.normalize("NFD", s or "")
+    n = "".join(c for c in n if unicodedata.category(c) != "Mn")
+    n = "".join(c for c in n.lower() if c.isalnum() or c.isspace())
+    return " ".join(n.split())
+
+
+# Alias : quelques libellés Excel connus qui divergent des FieldSpec labels.
+_EXCEL_LABEL_ALIASES: dict[str, dict[str, str]] = {
+    "inspections": {"id": "id_ouvrage"},
+    "rapports": {},
+    "incidents": {},
+    "materiel": {},
+}
 
 
 class InspectionService:
@@ -492,23 +516,57 @@ class InspectionService:
         return summary
 
     def _import_sheet(self, worksheet: Any, sheet: str) -> int:
-        """Importe une feuille Excel dans la table correspondante."""
+        """Importe une feuille Excel dans la table correspondante.
+
+        L'import est **header-based** (mapping par libellé de colonne) avec
+        normalisation souple (accents, espaces, casse) pour rester robuste
+        aux évolutions du classeur (ajout de colonnes, retitrage, etc.).
+
+        Si un libellé Excel ne matche aucun ``FieldSpec.label``, on essaie
+        les alias déclarés dans :data:`_EXCEL_LABEL_ALIASES`. Les colonnes
+        dupliquées (ex. « Type » présent 2× dans Rapports) sont mappées
+        successivement (1er = type_ouvrage, 2e = type_defaut).
+        """
         columns = ORDERED_COLUMNS[sheet]
+        # Table des libellés attendus (normalisés) → colonne DB.
+        label_to_col: dict[str, list[str]] = {}
+        for spec in FORM_FIELDS[sheet]:
+            label_to_col.setdefault(_norm_label(spec.label), []).append(spec.column)
+        aliases = {
+            _norm_label(k): v for k, v in _EXCEL_LABEL_ALIASES.get(sheet, {}).items()
+        }
         anchor = "date" if "date" in columns else columns[0]
-        anchor_index = columns.index(anchor)
         self._db.clear_table(sheet)
+        header_map: list[str | None] = []  # colonne DB pour chaque cellule (ou None si inconnue)
+        used_counts: dict[str, int] = {}
         inserted = 0
         for row_index, row in enumerate(worksheet.iter_rows(values_only=True)):
-            if row_index == 0:
-                continue  # ligne d'en-tête
             values = list(row)
-            anchor_value = values[anchor_index] if anchor_index < len(values) else None
-            if anchor_value in (None, ""):
-                continue  # ligne-modèle vide (pas de date réelle)
-            data = {
-                columns[i]: _cell_to_str(values[i])
-                for i in range(min(len(columns), len(values)))
-            }
+            if row_index == 0:
+                # Construit header_map une fois pour toutes.
+                for cell in values:
+                    norm = _norm_label(str(cell)) if cell is not None else ""
+                    candidates = label_to_col.get(norm, [])
+                    if not candidates and norm in aliases:
+                        candidates = [aliases[norm]]
+                    if not candidates:
+                        header_map.append(None)
+                        continue
+                    # Pour un libellé dupliqué, prendre la N-ième occurrence.
+                    idx = used_counts.get(norm, 0)
+                    if idx < len(candidates):
+                        header_map.append(candidates[idx])
+                        used_counts[norm] = idx + 1
+                    else:
+                        header_map.append(None)
+                continue
+            data: dict[str, str] = {}
+            for cell_index, col_key in enumerate(header_map):
+                if col_key is None or cell_index >= len(values):
+                    continue
+                data[col_key] = _cell_to_str(values[cell_index])
+            if not data.get(anchor):
+                continue  # ligne-modèle vide
             self._db.insert_generic(sheet, data)
             inserted += 1
         return inserted
