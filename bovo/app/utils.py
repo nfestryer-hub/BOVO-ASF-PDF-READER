@@ -12,6 +12,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import unicodedata
 from datetime import date, datetime
 from pathlib import Path
@@ -20,11 +21,54 @@ from app.logger import get_logger
 
 logger = get_logger("utils")
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATABASE_DIR = PROJECT_ROOT / "database"
-ASSETS_DIR = PROJECT_ROOT / "assets"
-LOGS_DIR = PROJECT_ROOT / "logs"
-EXPORT_DIR = PROJECT_ROOT / "exports"
+
+def _is_frozen() -> bool:
+    """Retourne True si l'app tourne depuis un exécutable PyInstaller.
+
+    Détection standard : ``sys.frozen`` est positionné par PyInstaller (et
+    la plupart des packagers Python — cx_Freeze, Nuitka…).
+    """
+    return bool(getattr(sys, "frozen", False))
+
+
+def _user_data_root() -> Path:
+    """Racine des données utilisateur (persistantes, écrite au run-time).
+
+    * Mode « frozen » (Bovo.exe distribué sur un partage réseau ou installé) :
+      on utilise ``%APPDATA%\\Bovo`` (Windows) ou ``~/.local/share/Bovo``
+      (Linux/macOS) pour que les paramètres, journal, DB locale et exports
+      soient persistés PAR UTILISATEUR — indépendamment de l'emplacement
+      de l'exe. Sans ça, un exe partagé écrirait ses données dans
+      ``%TEMP%\\_MEI...`` qui est effacé à chaque redémarrage.
+    * Mode dev (``python main.py``) : dossier du projet, comme avant.
+    """
+    if _is_frozen():
+        if platform.system() == "Windows":
+            base = Path(os.environ.get("APPDATA", "")) if os.environ.get("APPDATA") else Path.home() / "AppData" / "Roaming"
+            return base / "Bovo"
+        # Linux/macOS (peu probable pour cette app mais robuste).
+        return Path.home() / ".local" / "share" / "Bovo"
+    return Path(__file__).resolve().parent.parent
+
+
+def _bundle_root() -> Path:
+    """Racine des ressources bundlées (assets read-only : logo, icônes).
+
+    En mode frozen, PyInstaller expose ``sys._MEIPASS`` (chemin d'extraction
+    temporaire). En mode dev, on retombe sur la racine du projet.
+    """
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass)
+    return Path(__file__).resolve().parent.parent
+
+
+PROJECT_ROOT = _bundle_root()               # assets read-only (logo, icônes)
+_USER_ROOT = _user_data_root()              # writable per-user
+DATABASE_DIR = _USER_ROOT / "database"      # SQLite local (settings, journal)
+ASSETS_DIR = PROJECT_ROOT / "assets"        # bundle
+LOGS_DIR = _USER_ROOT / "logs"              # journal fichier
+EXPORT_DIR = _USER_ROOT / "exports"         # PDF/Excel générés
 
 
 def get_system_username() -> str:

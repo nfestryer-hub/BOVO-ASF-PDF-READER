@@ -18,11 +18,11 @@ from typing import Any
 
 from app.database import Database
 from app.logger import LogAction, LogLevel, get_logger, log_action
-from app.utils import PROJECT_ROOT, human_readable_size
+from app.utils import _USER_ROOT, human_readable_size
 
 logger = get_logger("documents")
 
-DOCUMENTS_DIR = PROJECT_ROOT / "documents"
+DOCUMENTS_DIR = _USER_ROOT / "documents"
 
 
 @dataclass(slots=True)
