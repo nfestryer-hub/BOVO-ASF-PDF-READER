@@ -18,6 +18,28 @@ inspections,logger,settings,utils}.py · database/bovo.db · assets/logo.png · 
 GUI sans logique métier ; logique répartie dans les modules.
 
 ## Implémenté
+### V1.6 (2026-07-29) — Bug fix Excel & scroll horizontal ✅
+- **Bug #1 : décalage colonnes Excel** — l'utilisateur a ajouté une colonne
+  `ID` en position 4 dans la feuille Inspections. Corrections :
+  * Ajout de `id_ouvrage` dans `ORDERED_COLUMNS['inspections']` (pos 3) et
+    `FORM_FIELDS['inspections']` (label "ID Ouvrage").
+  * `_import_sheet` refactoré en **header-based** avec normalisation
+    accents/espaces/casse + table d'aliases `_EXCEL_LABEL_ALIASES`
+    (`"ID" → id_ouvrage`). Robuste aux évolutions futures du classeur
+    (colonnes ajoutées, ré-ordonnées, retitrages).
+  * Rétro-compat validée : l'ancien classeur (17 cols) et le nouveau
+    (18 cols avec ID) importent tous les deux correctement.
+- **Bug #2 : pas de scrollbar horizontale** dans le tableau des modules
+  ASF (Rapports = 21 colonnes). Corrections :
+  * `_build_module_tab` remplace `CTkScrollableFrame` par
+    `tkinter.Canvas` + `CTkScrollbar` horizontal & vertical.
+  * Molette : verticale par défaut, **Shift+molette** pour horizontal.
+  * Scroll region recalculé automatiquement à chaque changement d'inner.
+  * Canvas est un widget tk pur → couleur passée en string (résolution
+    du tuple light/dark de CTk selon `get_appearance_mode()`).
+- **Tests** : testing agent iter #3 : 47/47 pytest ✅ + smoke_test_gui ✅
+  + repro_remember_gui ✅ + import nouveau Excel: id_ouvrage='21764' ✅.
+
 ### V1.5 (2026-07-01) — Migration REST complète du GUI ✅
 - **BovoApp** accepte désormais `client=` et instancie `RemotePlanner` /
   `RemoteInspectionService` / `RemoteDocumentService` à la place des services
