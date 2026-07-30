@@ -18,7 +18,38 @@ inspections,logger,settings,utils}.py · database/bovo.db · assets/logo.png · 
 GUI sans logique métier ; logique répartie dans les modules.
 
 ## Implémenté
-### V1.6 (2026-07-29) — Bug fix Excel & scroll horizontal ✅
+### V1.6 (2026-07-30) — Colonne ID Ouvrage visible + Packaging MSI + Auto-updates ✅
+- **Vue Inspections ASF** : colonne `id_ouvrage` mise en valeur (largeur
+  95 px dédiée, label header en accent rouge, valeur en gras+accent).
+  Nouveau dict `_COL_WIDTHS` avec largeurs personnalisées par colonne
+  (id ~95, dates ~100, observations ~260) pour une meilleure hiérarchie
+  visuelle. Le scroll horizontal introduit précédemment permet de
+  visualiser toutes les colonnes.
+- **Packaging MSI** (cx_Freeze) :
+  * `setup_msi.py` avec `upgrade_code` GUID fixe → chaque nouvelle
+    version remplace proprement l'ancienne (via Windows Installer).
+  * Installation à `C:\Program Files\Bovo\`, raccourcis menu Démarrer
+    + bureau, entrée « Ajouter/Supprimer programmes ».
+  * `build-msi.ps1` (build) et `publish-release.ps1` (publication).
+- **Auto-update** :
+  * `app/updater.py` : `UpdateInfo`, `check_for_update`, `_parse_version`
+    (SemVer tolérant), `check_for_update_async` (thread daemon jamais
+    bloquant), `launch_installer` (msiexec /i avec DETACHED_PROCESS).
+  * `Settings.update_source` : chemin UNC ou URL vers `latest.json`.
+  * `BovoApp._schedule_update_check` appelé au démarrage → bandeau non
+    bloquant si MAJ dispo (ou modal si `mandatory=true`).
+  * Vue Paramètres : champ « Source des mises à jour » + bouton
+    « Vérifier » + affichage de la version installée.
+- **Tests** : testing agent iter #4 : **58/58 pytest** ✅ (11 nouveaux
+  test_updater.py) + smoke_test_gui ✅ + repro_remember_gui ✅.
+
+### V1.5.1 (2026-07-29) — Persistance frozen mode
+- `utils.py` détecte `sys.frozen` → données utilisateur dans
+  `%APPDATA%\Bovo\` (persistant per-user), assets bundle via
+  `sys._MEIPASS`. Nécessaire pour que « Se souvenir de moi » etc.
+  survivent quand l'exe tourne depuis un partage réseau.
+
+### V1.6.0 (2026-07-29) — Bug fix Excel & scroll horizontal ✅
 - **Bug #1 : décalage colonnes Excel** — l'utilisateur a ajouté une colonne
   `ID` en position 4 dans la feuille Inspections. Corrections :
   * Ajout de `id_ouvrage` dans `ORDERED_COLUMNS['inspections']` (pos 3) et
