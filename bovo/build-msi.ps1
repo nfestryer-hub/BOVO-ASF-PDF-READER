@@ -1,37 +1,31 @@
 <#
 .SYNOPSIS
-    Compile Bovo ASF Manager en un installateur MSI Windows (auto-updates via partage réseau).
+    Compile Bovo ASF Manager en MSI (cx_Freeze 8.6.4 / Python 3.13.14).
 
 .DESCRIPTION
-    Produit `dist\Bovo-<version>-win64.msi` — un vrai installateur MSI qui :
-      * installe l'app dans C:\Program Files\Bovo\
-      * crée les raccourcis menu Démarrer + bureau
-      * enregistre l'app dans « Ajouter/Supprimer programmes »
-      * remplace proprement les versions plus anciennes (via upgrade code fixe)
-      * embarque le Redistributable Visual C++
+    Produit `dist\Bovo-<version>-win64.msi` compatible cx_Freeze 8.6.4.
 
-    ── Workflow des mises à jour ──────────────────────────────────────
-    1. Sur ton PC dev : bump `app/version.py` (nouveau numéro SemVer)
-    2. `.\build-msi.ps1 -Clean -InstallDeps` produit `dist\Bovo-1.7.0-win64.msi`
-    3. Copie ce MSI dans le partage réseau :
-       Copy-Item dist\Bovo-1.7.0-win64.msi \\SERVEUR\Partage\Bovo\Bovo-Setup.msi -Force
-    4. Publie un fichier `latest.json` à côté :
-       @{version='1.7.0';msi_path='\\SERVEUR\Partage\Bovo\Bovo-Setup.msi'} | ConvertTo-Json | Out-File latest.json
-    5. Chaque poste vérifie ce fichier au démarrage : bandeau "Nouvelle version"
-       apparaît, l'utilisateur clique "Installer maintenant" (ou "Plus tard").
+    ── Cycle de vie ────────────────────────────────────────────────
+      1. Bumpe app\version.py (SemVer)
+      2. .\build-msi.ps1 -Clean -InstallDeps
+      3. .\publish-release.ps1 -Share \\SERVEUR\Partage\Bovo `
+                                -MsiUrl http://serveur/updates/Bovo-Setup.msi
 
-    ── Configuration côté utilisateur (à faire une fois) ────────────
-    Dans Paramètres → « Source des mises à jour », coller :
-      \\SERVEUR\Partage\Bovo\latest.json
+    ── Ce que produit le MSI ───────────────────────────────────────
+      * installation dans C:\Program Files\Bovo\ (per-machine, admin)
+      * raccourcis Bureau + menu Démarrer
+      * entrée dans « Ajouter/Supprimer programmes »
+      * MAJ sans perte : les données `%APPDATA%\Bovo\` sont préservées
 
 .PARAMETER Clean
-    Supprime build/ et dist/ avant de rebuild.
+    Supprime build\ et dist\ avant de rebuild.
 
 .PARAMETER InstallDeps
-    Force la (ré)installation des dépendances Python.
+    Force la (ré)installation des dépendances Python + cx_Freeze 8.6.4.
 
 .EXAMPLE
     .\build-msi.ps1 -Clean -InstallDeps
+    .\build-msi.ps1                    # rebuild rapide, sans réinstall deps
 #>
 
 param(
@@ -43,14 +37,26 @@ $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $scriptDir
 
-Write-Host "=== Build Bovo ASF Manager (MSI installer) ===" -ForegroundColor Cyan
+# Version canonique lue depuis app\version.py (source unique de vérité).
+$versionFile = Join-Path $scriptDir "app\version.py"
+$content = Get-Content $versionFile -Raw
+if ($content -notmatch '__version__\s*=\s*["'']([^"'']+)["'']') {
+    Write-Host "❌ Impossible de lire __version__ dans $versionFile" -ForegroundColor Red
+    exit 1
+}
+$version = $matches[1]
 
-# --- Vérif Python -----------------------------------------------------
+Write-Host "=== Build Bovo ASF Manager v$version (MSI, cx_Freeze 8.6.4) ===" -ForegroundColor Cyan
+
+# --- Vérif Python 3.13+ ----------------------------------------------
 try {
-    $version = & python --version 2>&1
-    Write-Host "Python détecté : $version" -ForegroundColor Green
+    $pyVersion = (& python --version 2>&1).ToString()
+    Write-Host "Python : $pyVersion" -ForegroundColor Green
+    if ($pyVersion -notmatch '3\.(1[3-9]|[2-9]\d)') {
+        Write-Host "⚠  Python 3.13+ recommandé (détecté : $pyVersion). Continue quand même." -ForegroundColor Yellow
+    }
 } catch {
-    Write-Host "❌ Python introuvable. Installe Python 3.11+ depuis python.org." -ForegroundColor Red
+    Write-Host "❌ Python introuvable. Installe Python 3.13+ depuis python.org." -ForegroundColor Red
     exit 1
 }
 
@@ -64,13 +70,17 @@ if (-not (Test-Path $venv)) {
 
 # --- Dépendances ------------------------------------------------------
 if ($InstallDeps -or (-not (Test-Path (Join-Path $venv "Scripts\cxfreeze.exe")))) {
-    Write-Host "→ Installation des dépendances + cx_Freeze..." -ForegroundColor Yellow
+    Write-Host "→ Installation des dépendances runtime..." -ForegroundColor Yellow
     python -m pip install --upgrade pip
     python -m pip install -r requirements.txt
-    python -m pip install "cx_Freeze>=6.15"
+
+    Write-Host "→ Installation de cx_Freeze 8.6.4..." -ForegroundColor Yellow
+    # Épingle la version exacte demandée par le projet pour éviter les
+    # dérives API entre 8.x mineurs.
+    python -m pip install "cx_Freeze==8.6.4"
 }
 
-# --- Icône PNG → ICO -------------------------------------------------
+# --- Icône .ico à partir du logo PNG (si pas déjà présente) ----------
 $icoPath = Join-Path $scriptDir "assets\icon.ico"
 $pngPath = Join-Path $scriptDir "assets\logo.png"
 if ((-not (Test-Path $icoPath)) -and (Test-Path $pngPath)) {
@@ -79,12 +89,11 @@ if ((-not (Test-Path $icoPath)) -and (Test-Path $pngPath)) {
 from PIL import Image
 img = Image.open(r'$pngPath').convert('RGBA')
 img.save(r'$icoPath', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
-print('icon.ico OK')
 "@
     python -c $py
 }
 
-# --- Icônes PNG (menu / boutons) -------------------------------------
+# --- Icônes PNG (menu / boutons) --------------------------------------
 if (Test-Path "app\icons_generator.py") {
     Write-Host "→ Génération des icônes PNG (PIL)..." -ForegroundColor Yellow
     python -m app.icons_generator
@@ -92,28 +101,32 @@ if (Test-Path "app\icons_generator.py") {
 
 # --- Nettoyage optionnel ----------------------------------------------
 if ($Clean) {
-    Write-Host "→ Nettoyage des anciens builds..." -ForegroundColor Yellow
+    Write-Host "→ Nettoyage build\ et dist\..." -ForegroundColor Yellow
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist
 }
 
 # --- Build MSI --------------------------------------------------------
-Write-Host "→ Build MSI (cx_Freeze bdist_msi)..." -ForegroundColor Yellow
+Write-Host "→ Build MSI (cx_Freeze 8.6.4 bdist_msi)..." -ForegroundColor Yellow
 python setup_msi.py bdist_msi
 
 # --- Vérification résultat --------------------------------------------
-$msi = Get-ChildItem -Path "dist\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+$msi = Get-ChildItem -Path "dist\*.msi" -ErrorAction SilentlyContinue |
+       Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($msi) {
     $sizeMB = [math]::Round($msi.Length / 1MB, 2)
+
+    # SHA256 pour intégrité (également utilisé par l'auto-updater).
+    $hash = (Get-FileHash -Algorithm SHA256 -Path $msi.FullName).Hash
+
     Write-Host ""
     Write-Host "✅ Build réussi !" -ForegroundColor Green
     Write-Host "   Installateur : $($msi.FullName)"
     Write-Host "   Taille       : $sizeMB Mo"
+    Write-Host "   SHA256       : $hash"
     Write-Host ""
-    Write-Host "📦 Prochaines étapes :" -ForegroundColor Cyan
-    Write-Host "   1. Copie sur le partage :" -ForegroundColor Cyan
-    Write-Host "      Copy-Item '$($msi.FullName)' '\\SERVEUR\Partage\Bovo\Bovo-Setup.msi' -Force"
-    Write-Host "   2. Publie latest.json :" -ForegroundColor Cyan
-    Write-Host "      voir DISTRIBUTION_WINDOWS.md"
+    Write-Host "📦 Prochaine étape :" -ForegroundColor Cyan
+    Write-Host "   .\publish-release.ps1 -Share '\\SERVEUR\Partage\Bovo' `" -ForegroundColor Gray
+    Write-Host "                          -MsiUrl 'http://serveur/updates/Bovo-Setup.msi'" -ForegroundColor Gray
 } else {
     Write-Host "❌ Build échoué : aucun .msi produit dans dist\" -ForegroundColor Red
     exit 1

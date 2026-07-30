@@ -1,0 +1,28 @@
+{
+  "summary": "Validation MSI packaging (cx_Freeze 8.6.4) + auto-updater HTTP/SHA256 pour Bovo ASF Manager. Tous les critères d'acceptation sont verts : (a) pytest 63/63 PASS (incl. 5 nouveaux tests _sha256_file, _download_msi OK/mismatch, payload msi_url-only, payload msi_path-only) ; (b) smoke_updater_e2e.py PASS (HTTP server local + latest.json + MSI factice + check_for_update + _download_msi avec vérif SHA256 + install_update avec Popen mocké → msiexec /i /qn /norestart) ; (c) smoke_test_gui.py + repro_remember_gui.py + smoke_multiselect.py PASS (non-régression) ; (d) setup_msi.py syntaxiquement valide (ast.parse) et conforme (2 Executable, upgrade_code fixe 7B9F1E4E-..., all_users=True, [ProgramFiles64Folder]\\Bovo, target_name Bovo-<v>-win64, base=Win32GUI, shortcut_dir ProgramMenuFolder + DesktopFolder) ; (e) publish-release.ps1 contient tous les champs latest.json requis et paramètre -MsiUrl ; (f) build-msi.ps1 épingle cx_Freeze==8.6.4 et calcule SHA256 via Get-FileHash.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/bovo/tests/test_updater.py",
+    "/app/.testenv/smoke_updater_e2e.py",
+    "/app/.testenv/smoke_test_gui.py",
+    "/app/.testenv/repro_remember_gui.py",
+    "/app/.testenv/smoke_multiselect.py",
+    "/app/test_reports/pytest/pytest_iter6.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "setup_msi.py: upgrade_code GUID fixe correctement documenté avec commentaire 'JAMAIS le changer' — bonne pratique. Les deux Executable() partagent le même target_name 'Bovo.exe' donc cx_Freeze dédupliquera le binaire mais créera bien deux entrées Shortcut (ProgramMenuFolder + DesktopFolder). À valider en pratique sur Windows lors du premier build.",
+    "updater.py: _download_msi écrit en .part puis renomme atomiquement — évite un MSI corrompu si le download est interrompu. Bonne pratique.",
+    "updater.py: install_update() ne vérifie pas le SHA256 sur le chemin UNC quand info.sha256 est absent — comportement acceptable (SHA256 est optionnel dans latest.json), mais pourrait logger un warning explicite.",
+    "publish-release.ps1: n'upload PAS le MSI vers le serveur HTTP (uniquement SMB) — documenté clairement dans l'aide et un warning final. L'utilisateur doit publier manuellement le MSI sur le serveur HTTP.",
+    "smoke_updater_e2e.py: le mock patch('app.updater.subprocess.Popen') fonctionne bien car updater.py importe subprocess au niveau module. Le test valide correctement flags Windows (0x8|0x200) mais sur Linux flags=0 (attendu et documenté)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (63/63 pytest + 4/4 smoke)", "frontend": "N/A (backend/packaging only)"},
+  "test_credentials": "Admin: Bovo/ibak23 (seed backend port 8765, Postgres 5433).",
+  "seed_data_creation": "Aucune persistance : les smokes utilisent tempdir + nettoient leurs propres données via API.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le MSI ne peut PAS être construit dans ce container Linux (cx_Freeze bdist_msi = Windows-only). Validation limitée à ast.parse + lecture PS1. La vraie validation MSI (double-clic → C:\\Program Files\\Bovo, shortcuts, désinstallation via upgrade_code, préservation %APPDATA%\\Bovo) se fait chez l'utilisateur sur Windows 10/11. Backend uvicorn sur 127.0.0.1:8765 toujours disponible."
+}

@@ -1,4 +1,6 @@
-"""Configuration cx_Freeze pour produire un installateur MSI Bovo.
+"""Configuration cx_Freeze 8.6.4 pour produire l'installateur MSI Bovo.
+
+Compatible cx_Freeze **8.6.4** / Python **3.13.14**.
 
 Usage (à lancer sur Windows depuis /app/bovo) :
 
@@ -6,14 +8,18 @@ Usage (à lancer sur Windows depuis /app/bovo) :
 
 Produit ``dist/Bovo-<version>-win64.msi`` — un vrai installateur MSI qui :
 
-* installe l'app dans ``C:\\Program Files\\Bovo\\``
-* crée les raccourcis menu Démarrer + bureau
-* enregistre l'app dans « Ajouter/Supprimer programmes » (désinstallation propre)
-* remplace automatiquement les versions plus anciennes (upgrade code fixe)
+* installe l'app dans ``C:\\Program Files\\Bovo\\`` (all_users) ;
+* crée les raccourcis menu Démarrer + bureau ;
+* enregistre l'app dans « Ajouter/Supprimer programmes » ;
+* remplace automatiquement les versions plus anciennes via un
+  ``upgrade_code`` GUID FIXE (surtout ne pas le changer) ;
+* NE TOUCHE JAMAIS à ``%APPDATA%\\Bovo\\`` où sont les données
+  utilisateur (paramètres, session, journal).
 
-Les données utilisateur (SQLite locale, journal, exports, session "Se
-souvenir de moi") vont dans ``%APPDATA%\\Bovo\\`` — persistant, indépendant
-de l'emplacement d'installation, pas d'écrasement lors des mises à jour.
+Les mises à jour se font par ré-installation du même MSI : Windows
+Installer détecte l'``upgrade_code``, désinstalle l'ancienne version,
+installe la nouvelle. Le contenu de ``%APPDATA%\\Bovo\\`` est conservé
+tel quel (situé hors du dossier d'installation).
 """
 from __future__ import annotations
 
@@ -23,7 +29,7 @@ from pathlib import Path
 from cx_Freeze import Executable, setup
 
 sys.path.insert(0, str(Path(__file__).parent))
-from app.version import __version__
+from app.version import __version__  # noqa: E402
 
 APP_ROOT = Path(__file__).resolve().parent
 
@@ -31,82 +37,85 @@ APP_ROOT = Path(__file__).resolve().parent
 include_files: list[tuple[str, str]] = []
 assets_dir = APP_ROOT / "assets"
 if assets_dir.exists():
+    # cx_Freeze 8.x : cible relative au build_exe root, sans "/" final.
     include_files.append((str(assets_dir), "assets"))
 
-# --- Options du build ------------------------------------------------- #
-build_exe_options = {
+# --- Options du build_exe --------------------------------------------- #
+# cx_Freeze 8.6.4 accepte les mêmes clés que les versions 6.x pour ces
+# options de build. Les modules serveur (FastAPI, SQLAlchemy...) sont
+# exclus pour maintenir la taille du MSI raisonnable (~60 Mo).
+build_exe_options: dict = {
     "packages": [
         "customtkinter", "tkinter", "requests", "sseclient",
         "openpyxl", "fitz",  # PyMuPDF
-        "app",  # notre package
+        "app",               # notre package
     ],
     "excludes": [
-        # Modules serveur non nécessaires côté client
         "sqlalchemy", "alembic", "fastapi", "uvicorn", "psycopg", "psycopg_binary",
         "starlette", "IPython", "jedi", "notebook", "test", "unittest",
     ],
     "include_files": include_files,
-    "include_msvcr": True,  # embarque le Redistributable Visual C++
+    "include_msvcr": True,   # embarque le Redistributable Visual C++
     "optimize": 1,
+    "silent": False,
 }
 
-# --- Options du MSI --------------------------------------------------- #
-# ATTENTION : upgrade_code est un GUID FIXE. Ne le change JAMAIS entre 2
-# versions, sinon Windows considère chaque MSI comme une app distincte
-# (au lieu de remplacer proprement l'ancienne).
+# --- Options du bdist_msi -------------------------------------------- #
+# ATTENTION : upgrade_code EST UN GUID FIXE — ne JAMAIS le changer entre
+# deux versions, sinon Windows Installer considère chaque MSI comme une
+# app distincte au lieu de remplacer proprement l'ancienne.
 UPGRADE_CODE = "{7B9F1E4E-3F16-4E2D-9A8F-1B4C6E2D9A3F}"
 
-bdist_msi_options = {
+icon_ico = assets_dir / "icon.ico"
+icon_path = str(icon_ico) if icon_ico.exists() else None
+
+bdist_msi_options: dict = {
     "upgrade_code": UPGRADE_CODE,
     "add_to_path": False,
-    "install_icon": str(assets_dir / "icon.ico") if (assets_dir / "icon.ico").exists() else None,
+    "install_icon": icon_path,
+    # cx_Freeze 8.x résout ``[ProgramFiles64Folder]`` → C:\Program Files.
     "initial_target_dir": r"[ProgramFiles64Folder]\Bovo",
-    "all_users": True,  # installation pour tous les utilisateurs (nécessite admin)
+    "all_users": True,          # installation pour tous les utilisateurs (admin requis)
+    "target_name": f"Bovo-{__version__}-win64",  # nom du .msi (sans .msi)
+    # Métadonnées Windows Installer (résumé "Propriétés" du .msi).
     "summary_data": {
         "author": "Bovo",
         "comments": "Gestionnaire d'interventions ASF (Inspection ITV)",
         "keywords": "ASF, inspection, ITV, planning, gestion",
     },
-    "data": {
-        # Shortcuts : menu Démarrer + Bureau
-        "Shortcut": [
-            (
-                "StartMenuShortcut",       # Shortcut
-                "ProgramMenuFolder",       # Directory_
-                "Bovo ASF Manager",        # Name
-                "TARGETDIR",               # Component_
-                "[TARGETDIR]Bovo.exe",     # Target
-                None,                      # Arguments
-                "Gestion des inspections ASF",  # Description
-                None, None, None, None,
-                "TARGETDIR",               # WkDir
-            ),
-            (
-                "DesktopShortcut",
-                "DesktopFolder",
-                "Bovo ASF Manager",
-                "TARGETDIR",
-                "[TARGETDIR]Bovo.exe",
-                None,
-                "Gestion des inspections ASF",
-                None, None, None, None,
-                "TARGETDIR",
-            ),
-        ],
-    },
 }
 
 # --- Exécutable principal --------------------------------------------- #
-icon = str(assets_dir / "icon.ico") if (assets_dir / "icon.ico").exists() else None
-bovo_exe = Executable(
-    script="main.py",
-    base="Win32GUI" if sys.platform == "win32" else None,  # pas de console
-    target_name="Bovo.exe",
-    icon=icon,
-    shortcut_name="Bovo ASF Manager",
-    shortcut_dir="ProgramMenuFolder",
-    copyright="© Bovo",
-)
+# En cx_Freeze 8.x, la façon la plus fiable de créer les raccourcis (menu
+# Démarrer + Bureau) est de passer ``shortcut_name`` et ``shortcut_dir``
+# directement sur l'Executable. On instancie DEUX Executable pointant sur
+# le même script (main.py), avec deux ``shortcut_dir`` différents :
+#   * ProgramMenuFolder → menu Démarrer
+#   * DesktopFolder     → raccourci bureau
+# cx_Freeze détectera le doublon binaire et n'embarquera Bovo.exe qu'une
+# seule fois dans le MSI (les entrées Shortcut sont dédupliquées).
+base = "Win32GUI" if sys.platform == "win32" else None
+
+executables = [
+    Executable(
+        script="main.py",
+        base=base,
+        target_name="Bovo.exe",
+        icon=icon_path,
+        shortcut_name="Bovo ASF Manager",
+        shortcut_dir="ProgramMenuFolder",     # menu Démarrer
+        copyright="© Bovo",
+    ),
+    Executable(
+        script="main.py",
+        base=base,
+        target_name="Bovo.exe",
+        icon=icon_path,
+        shortcut_name="Bovo ASF Manager",
+        shortcut_dir="DesktopFolder",         # icône bureau
+        copyright="© Bovo",
+    ),
+]
 
 setup(
     name="Bovo",
@@ -117,5 +126,5 @@ setup(
         "build_exe": build_exe_options,
         "bdist_msi": bdist_msi_options,
     },
-    executables=[bovo_exe],
+    executables=executables,
 )

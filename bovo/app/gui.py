@@ -874,16 +874,29 @@ class BovoApp(ctk.CTk):
         Si ``info.mandatory`` est vrai, un modal exige l'installation
         avant de continuer.
         """
-        from app.updater import launch_installer
+        from app.updater import install_update
+
+        def _do_install(silent: bool) -> None:
+            """Télécharge (si HTTP) + installe silencieusement, puis ferme l'app."""
+            if install_update(info, silent=silent):
+                # Windows Installer va écraser les fichiers verrouillés
+                # dès qu'on ferme le processus courant.
+                self.after(500, self.on_close)
+            else:
+                messagebox.showerror(
+                    "Mise à jour",
+                    "L'installation n'a pas pu démarrer. Consulte les logs "
+                    "(%APPDATA%\\Bovo\\logs\\bovo.log) pour plus de détails.",
+                )
 
         if info.mandatory:
             if messagebox.askyesno(
                 "Mise à jour obligatoire",
-                f"Version {info.latest_version} disponible (installée : {info.current_version}).\n"
+                f"Version {info.latest_version} disponible "
+                f"(installée : {info.current_version}).\n"
                 f"L'installation est requise pour continuer.\n\nInstaller maintenant ?",
             ):
-                if launch_installer(info.msi_path, silent=False):
-                    self.on_close()
+                _do_install(silent=False)
             return
 
         # Bandeau doux en haut de la fenêtre principale.
@@ -900,13 +913,10 @@ class BovoApp(ctk.CTk):
             text_color=("#7A5B00", "#F5D77A"),
         ).grid(row=0, column=0, sticky="w", padx=12, pady=6)
 
-        def _install() -> None:
-            if launch_installer(info.msi_path, silent=False):
-                self.on_close()
-
         ctk.CTkButton(
-            banner, text="Installer maintenant", width=160,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER, command=_install,
+            banner, text="Installer maintenant", width=170,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=lambda: _do_install(silent=True),
         ).grid(row=0, column=1, padx=(6, 6), pady=4)
         ctk.CTkButton(
             banner, text="Plus tard", width=90, fg_color="transparent",
