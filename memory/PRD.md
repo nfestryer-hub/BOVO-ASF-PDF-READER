@@ -18,6 +18,19 @@ inspections,logger,settings,utils}.py · database/bovo.db · assets/logo.png · 
 GUI sans logique métier ; logique répartie dans les modules.
 
 ## Implémenté
+### V1.7 (2026-07-30) — Multi-sélection & suppression groupée ✅
+- **Vue Interventions** : checkbox par ligne + case « Tout sélectionner » +
+  bouton « Supprimer sélection (N) » (compteur dynamique).
+- **Vue Inspections ASF** (4 feuilles inspections/rapports/incidents/
+  materiel) : même dispositif, suppression via `RemoteInspectionService.delete_row`.
+- **Nettoyage auto** : IDs devenus invisibles (filtre/recherche) retirés
+  de la sélection automatiquement.
+- **Permission-aware** : checkboxes + bouton visibles UNIQUEMENT pour les
+  rôles Admin/Planificateur ; Consultant reste read-only.
+- **Confirmation** avant suppression + toast récap (« N supprimé(s), M échec(s) »).
+- **Tests** : testing agent iter #5 : 58/58 pytest ✅ + smoke_multiselect ✅
+  + smoke_test_gui ✅ + repro_remember_gui ✅.
+
 ### V1.6 (2026-07-30) — Colonne ID Ouvrage visible + Packaging MSI + Auto-updates ✅
 - **Vue Inspections ASF** : colonne `id_ouvrage` mise en valeur (largeur
   95 px dédiée, label header en accent rouge, valeur en gras+accent).
