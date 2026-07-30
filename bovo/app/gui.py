@@ -821,6 +821,12 @@ class BovoApp(ctk.CTk):
         self._cal_year = today.year
         self._cal_month = today.month
 
+        # État de sélection multi (pour suppression groupée).
+        self._selected_iv: set[int] = set()
+        self._selected_module: dict[str, set[int]] = {}
+        self._selected_module_btn: dict[str, ctk.CTkButton | None] = {}
+        self._iv_selected_btn: ctk.CTkButton | None = None
+
         self.title("Bovo ASF Manager")
         width, height = settings.window_size
         self.geometry(f"{width}x{height}")
@@ -1422,9 +1428,19 @@ class BovoApp(ctk.CTk):
                 text_color=("black", "white"), hover_color=ACCENT,
                 command=lambda f=fmt: self._export(f),
             ).pack(side="left", padx=4)
+        # Suppression groupée (visible uniquement si l'utilisateur a le droit d'éditer).
+        if self._can("edit"):
+            self._iv_selected_btn = ctk.CTkButton(
+                exports, text="🗑  Supprimer sélection",
+                width=200, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                state="disabled",
+                command=self._delete_selected_interventions,
+            )
+            self._iv_selected_btn.pack(side="left", padx=(16, 0))
         self._count_label = ctk.CTkLabel(exports, text="", text_color="#9A9AA0")
         self._count_label.pack(side="right")
 
+        self._selected_iv.clear()
         self._table = ctk.CTkScrollableFrame(frame, fg_color="transparent")
         self._table.grid(row=2, column=0, sticky="nsew")
         self._refresh_table()
@@ -1445,9 +1461,22 @@ class BovoApp(ctk.CTk):
             widget.destroy()
         interventions = self._planner.search(**self._current_filters())
         self._count_label.configure(text=f"{len(interventions)} résultat(s)")
+        # Nettoie la sélection des IDs qui ne sont plus visibles.
+        visible_ids = {iv.id for iv in interventions if iv.id is not None}
+        self._selected_iv &= visible_ids
 
         head = ctk.CTkFrame(self._table, fg_color=CARD_BG, corner_radius=8)
         head.pack(fill="x", pady=(0, 4))
+        # « Tout sélectionner » (colonne 0), visible seulement si édition possible.
+        if self._can("edit"):
+            self._iv_select_all_var = ctk.BooleanVar(
+                value=bool(visible_ids) and self._selected_iv == visible_ids
+            )
+            select_all_cb = ctk.CTkCheckBox(
+                head, text="", width=28, variable=self._iv_select_all_var,
+                command=lambda: self._toggle_all_interventions(interventions),
+            )
+            select_all_cb.pack(side="left", padx=(10, 4), pady=8)
         headers = ["Ouvrage", "Objet", "Autoroute", "Dates", "Type", "Statut"]
         widths = [110, 150, 90, 180, 130, 110]
         for text, w in zip(headers, widths, strict=False):
@@ -1458,6 +1487,7 @@ class BovoApp(ctk.CTk):
 
         for iv in interventions:
             self._table_row(iv, widths)
+        self._update_iv_delete_btn()
 
     def _table_row(self, iv: Intervention, widths: list[int]) -> None:
         """Construit une ligne cliquable de la table des interventions."""
@@ -1472,6 +1502,14 @@ class BovoApp(ctk.CTk):
             iv.type_ouvrage or "—", iv.statut.value,
         ]
         handler = lambda _event=None, i=iv: self._open_detail(i)  # noqa: E731
+        # Case à cocher pour sélection multiple (avant les cellules).
+        if self._can("edit") and iv.id is not None:
+            var = ctk.BooleanVar(value=iv.id in self._selected_iv)
+            cb = ctk.CTkCheckBox(
+                row, text="", width=28, variable=var,
+                command=lambda iid=iv.id, v=var: self._toggle_intervention(iid, v.get()),
+            )
+            cb.pack(side="left", padx=(10, 4), pady=8)
         row.bind("<Button-1>", handler)
         for col, (value, width) in enumerate(zip(cells, widths, strict=False)):
             is_statut = col == len(cells) - 1
@@ -1482,6 +1520,68 @@ class BovoApp(ctk.CTk):
             )
             label.pack(side="left", padx=6, pady=8)
             label.bind("<Button-1>", handler)
+
+    def _toggle_intervention(self, iv_id: int, selected: bool) -> None:
+        """Ajoute/retire une intervention de la sélection multiple."""
+        if selected:
+            self._selected_iv.add(iv_id)
+        else:
+            self._selected_iv.discard(iv_id)
+        self._update_iv_delete_btn()
+
+    def _toggle_all_interventions(self, interventions: list[Intervention]) -> None:
+        """Sélectionne ou déselectionne toutes les interventions visibles."""
+        if self._iv_select_all_var.get():
+            self._selected_iv = {iv.id for iv in interventions if iv.id is not None}
+        else:
+            self._selected_iv.clear()
+        self._refresh_table()
+
+    def _update_iv_delete_btn(self) -> None:
+        """Met à jour l'état et le libellé du bouton 'Supprimer sélection'."""
+        if self._iv_selected_btn is None:
+            return
+        n = len(self._selected_iv)
+        if n == 0:
+            self._iv_selected_btn.configure(
+                state="disabled", text="🗑  Supprimer sélection",
+            )
+        else:
+            self._iv_selected_btn.configure(
+                state="normal",
+                text=f"🗑  Supprimer sélection ({n})",
+            )
+
+    def _delete_selected_interventions(self) -> None:
+        """Supprime en masse les interventions cochées, avec confirmation."""
+        n = len(self._selected_iv)
+        if n == 0:
+            return
+        if not messagebox.askyesno(
+            "Suppression multiple",
+            f"Supprimer les {n} intervention(s) sélectionnée(s) ? Cette action est irréversible.",
+        ):
+            return
+        failed: list[int] = []
+        for iv_id in list(self._selected_iv):
+            try:
+                self._planner.delete(iv_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Suppression intervention %s a échoué : %s", iv_id, exc)
+                failed.append(iv_id)
+        deleted = n - len(failed)
+        self._selected_iv.clear()
+        self._refresh_table()
+        if failed:
+            messagebox.showwarning(
+                "Suppression multiple",
+                f"{deleted} supprimée(s), {len(failed)} échec(s). Voir logs pour détails.",
+            )
+        else:
+            messagebox.showinfo(
+                "Suppression multiple",
+                f"{deleted} intervention(s) supprimée(s).",
+            )
 
     def _open_detail(self, iv: Intervention) -> None:
         """Ouvre la fiche détaillée d'une intervention."""
@@ -1702,6 +1802,17 @@ class BovoApp(ctk.CTk):
                 hover_color=ACCENT_HOVER,
                 command=lambda sh=sheet: self._open_row_form(sh, None),
             ).pack(side="right", padx=4)
+            # Bouton « Supprimer sélection » — désactivé tant que rien n'est coché.
+            btn = ctk.CTkButton(
+                toolbar, text="🗑  Supprimer sélection", width=200,
+                fg_color=ACCENT, hover_color=ACCENT_HOVER, state="disabled",
+                command=lambda sh=sheet: self._delete_selected_module_rows(sh),
+            )
+            btn.pack(side="right", padx=4)
+            self._selected_module_btn[sheet] = btn
+            self._selected_module.setdefault(sheet, set())
+        else:
+            self._selected_module_btn[sheet] = None
 
         # Zone de tableau scrollable dans les deux axes -------------------
         outer = ctk.CTkFrame(parent, fg_color="transparent")
@@ -1816,11 +1927,26 @@ class BovoApp(ctk.CTk):
             widget.destroy()
         columns = self._inspections.list_columns(sheet)
         rows = self._inspections.list_rows(sheet, self._insp_search[sheet].get().strip())
+        visible_ids = {int(r["id"]) for r in rows}
+        # Nettoie la sélection des IDs qui ne sont plus visibles.
+        self._selected_module.setdefault(sheet, set())
+        self._selected_module[sheet] &= visible_ids
 
         head = ctk.CTkFrame(table, fg_color=CARD_BG, corner_radius=8)
         head.pack(fill="x", pady=(0, 4))
+        # Case « Tout sélectionner » (colonne 0), édition uniquement.
+        if self._can("edit"):
+            select_all_var = ctk.BooleanVar(
+                value=bool(visible_ids)
+                and self._selected_module[sheet] == visible_ids
+            )
+            setattr(self, f"_mod_select_all_{sheet}", select_all_var)
+            ctk.CTkCheckBox(
+                head, text="", width=28, variable=select_all_var,
+                command=lambda sh=sheet, v=select_all_var, ids=visible_ids:
+                    self._toggle_all_module_rows(sh, v.get(), ids),
+            ).pack(side="left", padx=(10, 4), pady=8)
         for col, label in columns:
-            # La colonne ID Ouvrage est mise en évidence (fond léger + accent).
             is_id = col == "id_ouvrage"
             ctk.CTkLabel(
                 head, text=label, width=self._col_width(col), anchor="w",
@@ -1834,10 +1960,12 @@ class BovoApp(ctk.CTk):
                 table, text="Aucune donnée. Cliquez « Ajouter » ou importez le classeur.",
                 text_color="#9A9AA0",
             ).pack(anchor="w", pady=20)
+            self._update_module_delete_btn(sheet)
             return
 
         for row in rows:
             self._module_row(sheet, row, columns)
+        self._update_module_delete_btn(sheet)
 
     def _module_row(
         self, sheet: str, row: dict[str, str], columns: list[tuple[str, str]]
@@ -1849,6 +1977,15 @@ class BovoApp(ctk.CTk):
         container.pack(fill="x", pady=2)
         row_id = int(row["id"])
         handler = lambda _e=None, sh=sheet, rid=row_id: self._open_row_form(sh, rid)  # noqa: E731
+        # Case à cocher (sélection multiple).
+        if self._can("edit"):
+            selected = row_id in self._selected_module.get(sheet, set())
+            var = ctk.BooleanVar(value=selected)
+            ctk.CTkCheckBox(
+                container, text="", width=28, variable=var,
+                command=lambda sh=sheet, rid=row_id, v=var:
+                    self._toggle_module_row(sh, rid, v.get()),
+            ).pack(side="left", padx=(10, 4), pady=8)
         if self._can("edit"):
             container.bind("<Button-1>", handler)
         for col, _label in columns:
@@ -1857,7 +1994,6 @@ class BovoApp(ctk.CTk):
                 value = format_date_fr(parse_iso_date(row.get(col))) or value
             is_id = col == "id_ouvrage"
             width = self._col_width(col)
-            # Tronque en fonction de la largeur (~ 12 caractères pour 130px).
             max_chars = max(6, width // 10)
             label = ctk.CTkLabel(
                 container, text=str(value)[:max_chars],
@@ -1874,6 +2010,70 @@ class BovoApp(ctk.CTk):
                 text_color=ACCENT, hover_color=CARD_BG,
                 command=lambda sh=sheet, rid=row_id: self._delete_module_row(sh, rid),
             ).pack(side="right", padx=6)
+
+    def _toggle_module_row(self, sheet: str, row_id: int, selected: bool) -> None:
+        """Ajoute/retire une ligne de la sélection multi d'un module."""
+        bucket = self._selected_module.setdefault(sheet, set())
+        if selected:
+            bucket.add(row_id)
+        else:
+            bucket.discard(row_id)
+        self._update_module_delete_btn(sheet)
+
+    def _toggle_all_module_rows(
+        self, sheet: str, selected: bool, visible_ids: set[int]
+    ) -> None:
+        """Sélectionne ou déselectionne toutes les lignes visibles d'un module."""
+        if selected:
+            self._selected_module[sheet] = set(visible_ids)
+        else:
+            self._selected_module[sheet] = set()
+        self._refresh_module(sheet)
+
+    def _update_module_delete_btn(self, sheet: str) -> None:
+        """Met à jour l'état/le libellé du bouton 'Supprimer sélection' du module."""
+        btn = self._selected_module_btn.get(sheet)
+        if btn is None:
+            return
+        n = len(self._selected_module.get(sheet, set()))
+        if n == 0:
+            btn.configure(state="disabled", text="🗑  Supprimer sélection")
+        else:
+            btn.configure(state="normal", text=f"🗑  Supprimer sélection ({n})")
+
+    def _delete_selected_module_rows(self, sheet: str) -> None:
+        """Supprime en masse les lignes cochées d'un module ASF."""
+        bucket = self._selected_module.get(sheet, set())
+        n = len(bucket)
+        if n == 0:
+            return
+        if not messagebox.askyesno(
+            "Suppression multiple",
+            f"Supprimer les {n} entrée(s) sélectionnée(s) du module '{self._inspections.sheet_label(sheet)}' ? Cette action est irréversible.",
+        ):
+            return
+        failed: list[int] = []
+        for row_id in list(bucket):
+            try:
+                self._inspections.delete_row(sheet, row_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Suppression %s row %s a échoué : %s", sheet, row_id, exc,
+                )
+                failed.append(row_id)
+        deleted = n - len(failed)
+        self._selected_module[sheet] = set()
+        self._refresh_module(sheet)
+        if failed:
+            messagebox.showwarning(
+                "Suppression multiple",
+                f"{deleted} supprimée(s), {len(failed)} échec(s). Voir logs.",
+            )
+        else:
+            messagebox.showinfo(
+                "Suppression multiple",
+                f"{deleted} entrée(s) supprimée(s).",
+            )
 
     def _delete_module_row(self, sheet: str, row_id: int) -> None:
         """Supprime une ligne de module après confirmation."""
