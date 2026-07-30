@@ -18,6 +18,34 @@ inspections,logger,settings,utils}.py · database/bovo.db · assets/logo.png · 
 GUI sans logique métier ; logique répartie dans les modules.
 
 ## Implémenté
+### V1.7.1 (2026-07-30) — MSI cx_Freeze 8.6.4 + auto-update HTTP/SHA256 ✅
+- **setup_msi.py** refait pour cx_Freeze **8.6.4** + Python **3.13.14** :
+  * Deux `Executable()` (ProgramMenuFolder + DesktopFolder) → raccourcis
+    Bureau + menu Démarrer via l'API officielle 8.x.
+  * `upgrade_code = "{7B9F1E4E-3F16-4E2D-9A8F-1B4C6E2D9A3F}"` (fixe, ne
+    jamais changer) → Windows Installer remplace proprement l'ancienne
+    version.
+  * `all_users=True` → install per-machine (nécessite admin).
+  * `initial_target_dir=[ProgramFiles64Folder]\Bovo`.
+  * `target_name=Bovo-<version>-win64` → `dist/Bovo-1.7.0-win64.msi`.
+- **build-msi.ps1** : pin `cx_Freeze==8.6.4`, SHA256 auto post-build.
+- **publish-release.ps1** : accepte `-MsiUrl` HTTP en plus de `-Share` UNC.
+  Génère `latest.json` avec **version + msi_url + msi_path + sha256 +
+  size + release_notes + mandatory + published_at**.
+- **`app/updater.py`** enrichi :
+  * `UpdateInfo` avec msi_url + msi_path + sha256 + size.
+  * `_sha256_file` (streaming), `_download_msi` (téléchargement HTTP en
+    `.part` atomique + vérif SHA256), `install_update` (HTTP prioritaire
+    avec fallback UNC, `msiexec /i /qn /norestart /L*v`).
+  * Installation totalement silencieuse par défaut (`/qn`), on peut
+    passer à `/qb` (barre de progression) via `silent=False`.
+- **Préservation `%APPDATA%\Bovo`** : le MSI installe dans `Program
+  Files\Bovo\`. Windows Installer via upgrade_code désinstalle+réinstalle
+  le Program Files SANS jamais toucher au dossier utilisateur.
+- **Tests** : testing agent iter #6 : **63/63 pytest** ✅ (5 nouveaux tests
+  SHA256/download) + smoke_updater_e2e ✅ + smoke_test_gui ✅ +
+  repro_remember_gui ✅ + smoke_multiselect ✅.
+
 ### V1.7 (2026-07-30) — Multi-sélection & suppression groupée ✅
 - **Vue Interventions** : checkbox par ligne + case « Tout sélectionner » +
   bouton « Supprimer sélection (N) » (compteur dynamique).
