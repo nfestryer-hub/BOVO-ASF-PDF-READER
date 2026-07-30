@@ -1,0 +1,41 @@
+{
+  "summary": "Backend/desktop validation of FEATURE #1 (colonne ID Ouvrage mise en valeur, largeur 95px), FEATURE #2 (auto-updater updater.py + settings.update_source), FEATURE #2b/2c (bandeau MAJ + vue Paramètres), PACKAGING #3 (setup_msi.py cx_Freeze) et #3b (build-msi.ps1 / publish-release.ps1). Tous les critères d'acceptation sont verts : pytest 58/58 PASS (11 nouveaux test_updater + 47 précédents), smoke_test_gui exit 0 avec id_ouvrage en pos 3 et scrollregion=2211x116, repro_remember_gui exit 0 (AUTO-LOGIN Bovo/Admin), import asf.xlsx OK avec id_ouvrage='21764', BovoApp._COL_WIDTHS['id_ouvrage']==95, Settings.update_source property présente, setup_msi.py compile syntaxiquement (cx_Freeze présent dans requirements — build MSI Windows-only).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/bovo/tests/test_updater.py",
+    "/app/bovo/tests/test_bovo.py",
+    "/app/bovo/tests/test_remember_me.py",
+    "/app/.testenv/smoke_test_gui.py",
+    "/app/.testenv/repro_remember_gui.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "updater.py bien conçu : best-effort (jamais bloquant), gère UNC/HTTP, log warning sur payload incomplet/JSON invalide, retourne None correctement. _parse_version tolérant aux suffixes SemVer pré-release.",
+    "launch_installer utilise DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP sur Windows pour survivre à la fermeture de l'app — comportement correct pour un update via msiexec.",
+    "setup_msi.py : upgrade_code GUID fixe et documenté (ne pas changer), all_users=True + initial_target_dir=[ProgramFiles64Folder]\\Bovo — cohérent avec le workflow install-for-all-users.",
+    "BovoApp._COL_WIDTHS = 95px pour id_ouvrage, valeur en gras+accent via _refresh_module (lignes 1789/1824/1858 gui.py) — visuellement mis en valeur.",
+    "Settings.update_source property + persistance : OK. Vue Paramètres expose champ + bouton Vérifier + version installée (lignes 2359-2394 gui.py).",
+    "cx_Freeze non installé dans l'environnement Linux : normal, packaging Windows-only. La validation py_compile de setup_msi.py confirme la syntaxe. PS1 scripts syntaxiquement propres (paramètres, ErrorActionPreference stop, upgrade_code fixe respecté)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (58/58 pytest)", "frontend": "100% (smoke GUI desktop)"},
+  "test_credentials": "Admin: Bovo/ibak23 (seed backend).",
+  "seed_data_creation": "Aucun.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Toutes les features ID Ouvrage / auto-updater / packaging MSI sont validées côté Linux. Le vrai build MSI (cx_Freeze bdist_msi) doit être testé chez l'utilisateur sur Windows — impossible ici. Backend uvicorn tourne toujours sur 127.0.0.1:8765 (Postgres :5433).",
+  "verification_results": {
+    "feature_1_col_id_ouvrage_95px": "PASS (BovoApp._COL_WIDTHS['id_ouvrage']==95, _col_width() présent, emphase accent+bold via _refresh_module)",
+    "feature_2_updater_module": "PASS (UpdateInfo, check_for_update, check_for_update_async, launch_installer, _parse_version — 11/11 test_updater.py)",
+    "feature_2_settings_update_source": "PASS (Settings.update_source property+setter + persistance dans cache)",
+    "feature_2b_banner": "PASS (BovoApp._show_update_banner + _schedule_update_check appelé depuis on_authenticated)",
+    "feature_2c_view_parametres": "PASS (champ update_source + bouton Vérifier + label version installée)",
+    "packaging_3_setup_msi": "PASS syntaxe (py_compile OK, upgrade_code fixe, all_users=True, shortcuts menu Démarrer+bureau)",
+    "packaging_3b_ps1": "PASS structure (build-msi.ps1 120 lignes, publish-release.ps1 96 lignes, params corrects)",
+    "pytest_58_58": "PASS (58 passed in 8.63s)",
+    "remember_me_repro": "PASS (*** REMEMBER-ME OK ***)",
+    "smoke_test_gui": "PASS (*** SMOKE TEST OK ***, scrollregion 2211x116, id_ouvrage pos 3, import asf.xlsx id_ouvrage='21764')"
+  }
+}

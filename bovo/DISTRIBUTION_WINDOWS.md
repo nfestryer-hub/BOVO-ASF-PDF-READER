@@ -1,102 +1,142 @@
-# Distribution Bovo ASF Manager (Windows)
+# Distribution Bovo ASF Manager (Windows MSI + Auto-Updates)
 
-Guide pour compiler et distribuer l'application sur un partage réseau.
+Guide complet pour distribuer et maintenir l'app via **MSI installer** avec
+mises à jour automatiques poussées depuis un partage réseau.
 
-## 🎯 Modèle de déploiement
+## 🎯 Architecture retenue
 
-- **Toi** (admin) : compiles `Bovo.exe` sur ton PC dev, copies sur `\\SERVEUR\Partage\Bovo\`.
-- **Tes utilisateurs** : lancent `\\SERVEUR\Partage\Bovo\Bovo.exe` directement, ou créent un raccourci sur leur bureau.
-- **Mises à jour** : tu remplaces le `.exe` sur le partage — les utilisateurs récupèrent la nouvelle version au prochain lancement.
+```
+┌───────────────────────────────────────────────────────────────┐
+│  TA MACHINE DEV (Windows)                                      │
+│  - .\build-msi.ps1 produit dist\Bovo-1.7.0-win64.msi          │
+│  - .\publish-release.ps1 copie sur le partage + latest.json    │
+└────────────────────────────┬──────────────────────────────────┘
+                             │
+                             ▼
+┌───────────────────────────────────────────────────────────────┐
+│  PARTAGE RÉSEAU  \\SERVEUR\Partage\Bovo\                       │
+│  - Bovo-Setup.msi          (le dernier installateur)           │
+│  - latest.json             (métadonnées de version)            │
+│  - archive\Bovo-1.6.0.msi  (historique optionnel)              │
+└────────────────────────────┬──────────────────────────────────┘
+                             │
+                             ▼
+┌───────────────────────────────────────────────────────────────┐
+│  POSTES UTILISATEURS                                           │
+│  - Au démarrage → check latest.json                            │
+│  - Nouvelle version détectée → bandeau "Installer maintenant"  │
+│  - Clic → msiexec lance l'installation, app se ferme, MAJ OK   │
+└───────────────────────────────────────────────────────────────┘
+```
 
-Aucun Python ni dépendance à installer sur les postes utilisateurs.
-
-## 🔧 Compilation
-
-### Prérequis (ton PC de build uniquement)
-
-- **Windows** 10 ou 11
-- **Python 3.11+** — installe depuis <https://www.python.org/downloads/>
-  - À l'installation, coche **"Add Python to PATH"**
-- (Optionnel) **UPX** pour compresser l'exe : <https://upx.github.io/> — placer `upx.exe` dans le PATH
-
-### Build
+## 🔧 Compilation (une fois par version)
 
 ```powershell
 cd C:\chemin\vers\bovo
-.\build-windows.ps1 -Clean -InstallDeps
+
+# 1. Bumper la version dans app\version.py (SemVer : MAJOR.MINOR.PATCH)
+notepad app\version.py
+
+# 2. Build MSI
+.\build-msi.ps1 -Clean -InstallDeps
+
+# 3. Publier la release sur le partage réseau
+.\publish-release.ps1 -Share "\\SERVEUR\Partage\Bovo"
 ```
 
-Après quelques minutes :
+Le MSI produit s'appelle `dist\Bovo-<version>-win64.msi` (ex : `Bovo-1.7.0-win64.msi`).
 
-```
-✅ Build réussi !
-   Exécutable : C:\...\bovo\dist\Bovo.exe
-   Taille     : ~55 Mo (compressé UPX) ou ~90 Mo (sans UPX)
-```
+## 📦 Installation utilisateur (première fois)
 
-### Options du script
+L'utilisateur double-clique sur `\\SERVEUR\Partage\Bovo\Bovo-Setup.msi`.
+Windows lance l'assistant standard : Suivant → Installer → Terminer.
 
-| Option | Effet |
-|---|---|
-| `-Clean` | Supprime `build\` et `dist\` avant de rebuild |
-| `-InstallDeps` | Force la (ré)installation de pip + pyinstaller |
-| _(rien)_ | Build incrémental rapide |
+Résultat :
+- ✅ App installée dans `C:\Program Files\Bovo\`
+- ✅ Raccourci menu Démarrer + icône bureau
+- ✅ Entrée dans « Ajouter/Supprimer programmes » (désinstallation propre)
+- ✅ Données personnelles dans `%APPDATA%\Bovo\` (jamais écrasées lors des MAJ)
 
-## 📦 Distribution
+**Configuration une fois** dans l'app (Paramètres) :
+1. URL du backend REST (ex : `http://serveur-bovo.local:8000`)
+2. Source des mises à jour (ex : `\\SERVEUR\Partage\Bovo\latest.json`)
 
-```powershell
-Copy-Item .\dist\Bovo.exe '\\SERVEUR\Partage\Bovo\Bovo.exe' -Force
-```
+## 🚀 Cycle de mise à jour
 
-C'est tout ! Tes utilisateurs auront la nouvelle version au prochain lancement.
+### Côté admin (toi)
 
-## 📁 Où sont stockées les données utilisateur ?
+1. Développe & teste tes changements
+2. Bump `app/version.py` (ex : `1.6.0` → `1.7.0`)
+3. `.\build-msi.ps1 -Clean` → produit `dist\Bovo-1.7.0-win64.msi`
+4. `.\publish-release.ps1 -Share \\SERVEUR\Partage\Bovo -ReleaseNotes "Fix scroll H, colonne ID Ouvrage..."`
 
-**Pas** à côté de l'exe (partage en lecture seule). Elles sont stockées **par utilisateur** dans :
+Le script `publish-release.ps1` :
+- Copie le nouveau MSI vers le partage
+- Génère `latest.json` avec la version + chemin MSI
+- Archive l'ancien MSI dans `archive\` (optionnel)
 
-```
-%APPDATA%\Bovo\
-├── database\bovo.db          ← paramètres + journal + « Se souvenir de moi »
-├── logs\bovo.log             ← logs applicatifs
-└── exports\                  ← PDF/Excel générés localement
-```
+### Côté utilisateur
 
-Chaque utilisateur a sa propre config, indépendante des autres, même sur un poste partagé.
+Rien à faire. Au prochain lancement :
+1. Bandeau jaune "🚀 Nouvelle version 1.7.0 disponible"
+2. Clic sur "Installer maintenant"
+3. `msiexec` lance l'installation, l'app se ferme
+4. Windows applique la MAJ (garde les paramètres utilisateur intacts)
+5. L'utilisateur relance depuis son raccourci — nouvelle version active
 
-## 🚦 Configuration serveur (première utilisation)
+Pas d'admin requis si l'MSI a été installé en per-user (voir `setup_msi.py`).
+Nécessite admin si install per-machine (recommandé pour partages d'entreprise).
 
-Au tout premier lancement, l'app demande l'URL du backend FastAPI :
-- Format : `http://serveur-bovo.local:8000` (ou l'IP du serveur)
-- Cette URL est mémorisée dans `%APPDATA%\Bovo\` — plus jamais à ressaisir.
+## 🔒 Sécurité et signature
 
-## 🖼️ Icône personnalisée (optionnel)
+- **Non signé** : Windows SmartScreen peut afficher un avertissement au 1er lancement.
+- **Signé** : recommandé pour déploiement pro. Certificat de signature de code
+  (~200 €/an chez SSL.com, DigiCert, Sectigo).
 
-Pour avoir une icône Bovo à la place de l'icône Python générique :
-
-1. Crée ou récupère un fichier `.ico` (256×256 idéalement)
-2. Place-le en `assets/icon.ico`
-3. Relance `build-windows.ps1`
-
-## 🔒 Anti-virus / SmartScreen
-
-Comme `Bovo.exe` n'est pas signé avec un certificat commercial :
-- Windows SmartScreen peut afficher un avertissement au premier lancement
-  → l'utilisateur clique **"Informations complémentaires" → "Exécuter quand même"**
-- Certains antivirus peuvent le mettre en quarantaine
-  → ajoute une exception pour le chemin du partage
-
-**Pour éviter tout ça** : signer l'exe avec un certificat de signature de code (~200 €/an, ex : SSL.com, DigiCert). Non obligatoire.
+  ```powershell
+  signtool.exe sign /f cert.pfx /p PASSWORD /tr http://timestamp.digicert.com `
+              /td sha256 /fd sha256 dist\Bovo-1.7.0-win64.msi
+  ```
 
 ## ❓ Dépannage
 
-### « Windows a protégé votre ordinateur »
-Normal la première fois. Cliquer sur « Informations complémentaires » puis « Exécuter quand même ».
+### « L'installation a échoué »
+- Vérifie que tu n'as pas Bovo.exe ouvert.
+- Lance msiexec depuis PowerShell admin : `msiexec /i Bovo-Setup.msi /l*v install.log`
 
-### L'exe met du temps à démarrer
-Normal en mode `--onefile` (5-10 s au premier lancement) : Windows décompresse l'exe en mémoire. Les lancements suivants sont plus rapides (cache disque).
+### La MAJ ne se déclenche pas
+- Vérifie `%APPDATA%\Bovo\logs\bovo.log` : cherche `check_for_update`
+- Contrôle que `latest.json` sur le partage est lisible depuis le poste
+- Vérifie que le numéro de version dans `latest.json` est **supérieur** à celui installé
 
-### « Impossible d'accéder au serveur »
-Vérifie que le backend FastAPI est bien démarré et que l'URL configurée est joignable depuis le poste utilisateur (`ping serveur-bovo.local`).
+### « Impossible d'accéder au partage »
+Les postes doivent avoir accès en LECTURE à `\\SERVEUR\Partage\Bovo\`.
+Configurer via GPO ou permissions NTFS classiques.
 
-### Une DLL manque
-Le PC de build utilise probablement une DLL système absente sur les postes utilisateurs. Solution : ajouter la DLL manquante à la section `binaries` de `bovo.spec` OU installer le Redistributable Visual C++ sur les postes cibles.
+### Désinstaller proprement
+Panneau de configuration → Programmes → Bovo ASF Manager → Désinstaller.
+Les données `%APPDATA%\Bovo\` sont conservées (à supprimer manuellement si voulu).
+
+## 📁 Structure des fichiers utilisateur
+
+```
+%APPDATA%\Bovo\
+├── database\bovo.db          ← paramètres, journal, "Se souvenir de moi"
+├── logs\bovo.log             ← logs applicatifs
+├── documents\                ← cache local des documents téléchargés
+└── exports\                  ← PDF/Excel générés
+```
+
+Ces fichiers **survivent** aux mises à jour MSI. C'est intentionnel :
+les préférences utilisateur ne sont jamais perdues.
+
+## 🆚 MSI vs autres options
+
+| Critère | MSI (choisi) | .exe portable | ClickOnce |
+|---|---|---|---|
+| Installation propre | ✅ | ❌ | ✅ |
+| Désinstallation Windows | ✅ | ❌ | ✅ |
+| Mises à jour auto | ✅ (via latest.json) | ❌ manuel | ✅ natif |
+| Raccourcis Start Menu | ✅ | ❌ | ✅ |
+| Nécessite admin install | ⚠️ par défaut | ❌ | ❌ |
+| Support entreprise (GPO) | ✅ | ❌ | ⚠️ |

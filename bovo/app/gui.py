@@ -839,6 +839,74 @@ class BovoApp(ctk.CTk):
             default_view = "accueil"  # l'accueil reste accessible
         self._show_view(default_view)
         self.reveal()
+        # Vérifie en tâche de fond s'il existe une nouvelle version.
+        self._schedule_update_check()
+
+    # ------------------------------------------------------------------ #
+    # Auto-update
+    # ------------------------------------------------------------------ #
+    def _schedule_update_check(self) -> None:
+        """Lance la vérification de mise à jour en arrière-plan.
+
+        Ne bloque JAMAIS le démarrage : si le partage n'est pas joignable
+        ou la source vide, on ne fait rien.
+        """
+        source = self._settings.update_source
+        if not source:
+            return
+        from app.updater import check_for_update_async
+
+        def _on_available(info: Any) -> None:
+            # Marshal sur le thread Tk (les widgets ne sont pas thread-safe).
+            self.after(0, lambda: self._show_update_banner(info))
+
+        check_for_update_async(source, _on_available)
+
+    def _show_update_banner(self, info: Any) -> None:
+        """Affiche un bandeau non-bloquant proposant l'installation.
+
+        Si ``info.mandatory`` est vrai, un modal exige l'installation
+        avant de continuer.
+        """
+        from app.updater import launch_installer
+
+        if info.mandatory:
+            if messagebox.askyesno(
+                "Mise à jour obligatoire",
+                f"Version {info.latest_version} disponible (installée : {info.current_version}).\n"
+                f"L'installation est requise pour continuer.\n\nInstaller maintenant ?",
+            ):
+                if launch_installer(info.msi_path, silent=False):
+                    self.on_close()
+            return
+
+        # Bandeau doux en haut de la fenêtre principale.
+        banner = ctk.CTkFrame(self, fg_color=("#FFF4CC", "#4A3E1A"), height=42)
+        banner.grid(row=99, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 0))
+        banner.grid_columnconfigure(0, weight=1)
+        text = (
+            f"🚀  Nouvelle version {info.latest_version} disponible "
+            f"(actuelle : {info.current_version})."
+        )
+        ctk.CTkLabel(
+            banner, text=text, anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=("#7A5B00", "#F5D77A"),
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=6)
+
+        def _install() -> None:
+            if launch_installer(info.msi_path, silent=False):
+                self.on_close()
+
+        ctk.CTkButton(
+            banner, text="Installer maintenant", width=160,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER, command=_install,
+        ).grid(row=0, column=1, padx=(6, 6), pady=4)
+        ctk.CTkButton(
+            banner, text="Plus tard", width=90, fg_color="transparent",
+            hover_color=CARD_BG,
+            command=banner.destroy,
+        ).grid(row=0, column=2, padx=(0, 12), pady=4)
 
     def _can(self, action: str) -> bool:
         """Raccourci de vérification de droits sur la session courante."""
@@ -1714,6 +1782,33 @@ class BovoApp(ctk.CTk):
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Export", f"Échec de l'export : {exc}")
 
+    # Largeurs de colonnes personnalisées (px). Les valeurs non listées
+    # utilisent la largeur par défaut ci-dessous. Améliore la lisibilité
+    # et donne une hiérarchie visuelle claire (ID compact, observations
+    # généreuses).
+    _COL_WIDTHS: dict[str, int] = {
+        "n_inspection": 100, "date": 100, "jour_nuit": 80,
+        "id_ouvrage": 95, "autoroute": 90, "secteur": 100,
+        "pk_depart": 90, "pk_arrivee": 90, "ml_inspectes": 110,
+        "nb_regards": 90, "heure_debut": 90, "heure_fin": 90,
+        "heures_totales": 100, "ml_h": 80,
+        "operateur": 130, "coequipier": 130, "meteo": 90,
+        "observations": 260, "description": 260,
+        "identifiant": 110, "prestataire": 130, "inspecteur": 130,
+        "type_ouvrage": 110, "sens": 90, "emplacement": 150,
+        "type_materiau": 120, "latitude": 100, "longitude": 100,
+        "lien_maps": 200, "requalif": 130, "etat_cunettes": 140,
+        "type_defaut": 110, "urgence": 90, "photo": 180, "statut": 110,
+        "heure_incident": 100, "gestionnaire": 130,
+        "type_materiel": 130, "reference": 130, "quantite": 90,
+        "unite": 80, "fournisseur": 150, "cout": 100,
+    }
+    _COL_WIDTH_DEFAULT = 130
+
+    def _col_width(self, col: str) -> int:
+        """Retourne la largeur d'affichage souhaitée pour une colonne module."""
+        return self._COL_WIDTHS.get(col, self._COL_WIDTH_DEFAULT)
+
     def _refresh_module(self, sheet: str) -> None:
         """Recharge la table d'un module ASF selon la recherche."""
         table = self._insp_tables[sheet]
@@ -1724,10 +1819,13 @@ class BovoApp(ctk.CTk):
 
         head = ctk.CTkFrame(table, fg_color=CARD_BG, corner_radius=8)
         head.pack(fill="x", pady=(0, 4))
-        for _col, label in columns:
+        for col, label in columns:
+            # La colonne ID Ouvrage est mise en évidence (fond léger + accent).
+            is_id = col == "id_ouvrage"
             ctk.CTkLabel(
-                head, text=label, width=150, anchor="w",
+                head, text=label, width=self._col_width(col), anchor="w",
                 font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=ACCENT if is_id else None,
             ).pack(side="left", padx=6, pady=8)
         ctk.CTkLabel(head, text="", width=80).pack(side="left")
 
@@ -1757,9 +1855,15 @@ class BovoApp(ctk.CTk):
             value = row.get(col, "") or "—"
             if col == "date":
                 value = format_date_fr(parse_iso_date(row.get(col))) or value
+            is_id = col == "id_ouvrage"
+            width = self._col_width(col)
+            # Tronque en fonction de la largeur (~ 12 caractères pour 130px).
+            max_chars = max(6, width // 10)
             label = ctk.CTkLabel(
-                container, text=str(value)[:24], width=150, anchor="w",
-                font=ctk.CTkFont(size=12),
+                container, text=str(value)[:max_chars],
+                width=width, anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold" if is_id else "normal"),
+                text_color=ACCENT if is_id else None,
             )
             label.pack(side="left", padx=6, pady=8)
             if self._can("edit"):
@@ -2245,6 +2349,70 @@ class BovoApp(ctk.CTk):
             folders, text=f"Base de données : {self._db.path}",
             anchor="w", text_color="#9A9AA0",
         ).pack(anchor="w")
+
+        # --- Mises à jour automatiques -----------------------------------
+        update_row = ctk.CTkFrame(card, fg_color="transparent")
+        update_row.pack(fill="x", padx=20, pady=(4, 16))
+        ctk.CTkLabel(
+            update_row, text="Source des mises à jour", width=200, anchor="w",
+        ).pack(side="left")
+        update_var = ctk.StringVar(value=self._settings.update_source)
+        entry = ctk.CTkEntry(
+            update_row, textvariable=update_var, width=380,
+            placeholder_text=r"\\SERVEUR\Partage\Bovo\latest.json",
+        )
+        entry.pack(side="left", padx=(0, 8))
+
+        def _save_update() -> None:
+            self._settings.update_source = update_var.get()
+            messagebox.showinfo(
+                "Mises à jour",
+                "Source enregistrée. La vérification s'effectuera au prochain démarrage.",
+            )
+
+        ctk.CTkButton(
+            update_row, text="Enregistrer", width=110,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=_save_update,
+        ).pack(side="left")
+
+        def _check_now() -> None:
+            from app.updater import check_for_update
+            src = self._settings.update_source
+            if not src:
+                messagebox.showwarning(
+                    "Mises à jour", "Renseigne d'abord la source des mises à jour.",
+                )
+                return
+            info = check_for_update(src)
+            if info is None:
+                messagebox.showinfo(
+                    "Mises à jour",
+                    f"L'application est à jour (version {self._current_version()}).",
+                )
+            else:
+                self._show_update_banner(info)
+
+        ctk.CTkButton(
+            update_row, text="Vérifier", width=90,
+            fg_color="transparent", hover_color=CARD_BG,
+            command=_check_now,
+        ).pack(side="left", padx=(6, 0))
+
+        # --- À propos ----------------------------------------------------
+        about = ctk.CTkFrame(card, fg_color="transparent")
+        about.pack(fill="x", padx=20, pady=(0, 20))
+        ctk.CTkLabel(
+            about,
+            text=f"Version installée : {self._current_version()}",
+            anchor="w", text_color="#9A9AA0",
+        ).pack(anchor="w")
+
+    @staticmethod
+    def _current_version() -> str:
+        """Retourne la version canonique de l'application."""
+        from app.version import __version__
+        return __version__
 
     def _change_theme(self, theme: str) -> None:
         """Applique et persiste un nouveau thème."""

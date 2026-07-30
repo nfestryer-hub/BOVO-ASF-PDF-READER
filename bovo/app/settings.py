@@ -30,6 +30,9 @@ _DEFAULTS: dict[str, Any] = {
     "remembered_username": "",
     "remembered_refresh_token": "",
     "remembered_hash": "",  # legacy — non utilisé, conservé pour compat.
+    # Auto-update : URL/chemin UNC vers `latest.json` publié par l'admin.
+    # Vide → pas de vérification. Exemple : \\SERVEUR\Partage\Bovo\latest.json
+    "update_source": "",
 }
 
 
@@ -107,6 +110,18 @@ class Settings:
     def server_url(self, value: str) -> None:
         """Persiste l'URL du serveur (sans slash final)."""
         self.set("server_url", (value or "").strip().rstrip("/"))
+
+    # ------------------------------------------------------------------ #
+    # Auto-update
+    # ------------------------------------------------------------------ #
+    @property
+    def update_source(self) -> str:
+        """Chemin ou URL vers ``latest.json`` (partage réseau ou HTTP)."""
+        return str(self._cache.get("update_source") or "").strip()
+
+    @update_source.setter
+    def update_source(self, value: str) -> None:
+        self.set("update_source", (value or "").strip())
 
     # ------------------------------------------------------------------ #
     # « Se souvenir de moi » — session locale persistée
