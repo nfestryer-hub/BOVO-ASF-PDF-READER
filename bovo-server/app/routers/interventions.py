@@ -26,25 +26,31 @@ def list_interventions(
     search: Annotated[str, Query(max_length=200)] = "",
     autoroute: Annotated[str, Query(max_length=20)] = "",
     statut: Annotated[str, Query(max_length=40)] = "",
+    sort_by: Annotated[str, Query(max_length=20)] = "date",
+    sort_dir: Annotated[str, Query(max_length=4)] = "desc",
     limit: Annotated[int, Query(ge=1, le=5000)] = 500,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[InterventionOut]:
-    """Retourne les interventions avec filtres et pagination optionnels.
+    """Retourne les interventions avec filtres, tri et pagination.
 
-    Pagination V1.2 :
-      * ``limit`` : nombre max de résultats (défaut 500, cap 5000).
-      * ``offset`` : décalage — permet une pagination client.
-      * ``X-Total-Count`` : nombre total renvoyé dans les en-têtes de
-        réponse (via un ``Response`` middleware si besoin — pour l'instant
-        le client peut re-requêter avec un grand ``limit`` s'il veut le
-        compte exact).
+    * ``sort_by`` : ``date`` (défaut) ou ``secteur``.
+    * ``sort_dir`` : ``asc`` ou ``desc`` (défaut).
+    * Pagination : ``limit`` (max 5000) et ``offset``.
 
-    Le tri est déterministe (``date_debut DESC, id DESC``) pour que la
+    Le tri est toujours déterministe (id DESC en tie-break) pour que la
     pagination soit stable entre appels.
     """
-    query = select(Intervention).order_by(
-        Intervention.date_debut.desc().nullslast(), Intervention.id.desc(),
+    # Détermine la colonne de tri primaire (fallback = date_debut).
+    sort_key = (sort_by or "date").lower()
+    if sort_key == "secteur":
+        primary = Intervention.secteur
+    else:
+        primary = Intervention.date_debut
+    primary_expr = (
+        primary.asc().nullslast() if (sort_dir or "desc").lower() == "asc"
+        else primary.desc().nullslast()
     )
+    query = select(Intervention).order_by(primary_expr, Intervention.id.desc())
     if search:
         like = f"%{search}%"
         query = query.where(or_(

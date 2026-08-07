@@ -18,6 +18,8 @@ import threading
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
+import sys
+import tkinter as tk
 from tkinter import Canvas, filedialog, messagebox
 from typing import Any
 
@@ -57,6 +59,62 @@ ACCENT = "#E63946"
 ACCENT_HOVER = "#C32A38"
 CARD_BG = ("#F2F2F2", "#1B1B1F")
 SURFACE = ("#FFFFFF", "#232329")
+
+# --- Différenciation visuelle Jour vs Nuit ------------------------------- #
+# Une intervention est considérée "de nuit" si :
+#   * son champ ``commentaire`` contient « Nuit: Oui » (issu du parser
+#     Planning 2026 dans ``app.planning_pdf_parser``), OU
+#   * son ``objet`` contient explicitement ``(Nuit)`` ou le mot « nuit ».
+# Sinon elle est classée "de jour" par défaut. Icônes utilisées :
+NUIT_ICON = "🌙"
+JOUR_ICON = "☀️"
+NUIT_BG = ("#E7EBF3", "#22283A")   # bleu ardoise très pâle en clair / bleu nuit doux
+JOUR_BG = ("#FFF7E6", "#2A2620")   # jaune paille très pâle en clair / brun ambré doux
+
+
+# ``is_nuit`` est défini dans :mod:`app.models` afin d'être testable sans Tk.
+from app.models import is_nuit  # noqa: E402
+
+
+class BatchStatusDialog(ctk.CTkToplevel):
+    """Petit dialogue modal pour appliquer un statut à plusieurs interventions."""
+
+    def __init__(
+        self, master: "BovoApp", count: int,
+        on_apply: Callable[["StatutIntervention"], None],
+    ) -> None:
+        super().__init__(master)
+        self.title("Modifier le statut")
+        self.geometry("380x230")
+        self.resizable(False, False)
+        self.grab_set()
+        self._on_apply = on_apply
+        ctk.CTkLabel(
+            self, text=f"Appliquer un nouveau statut à\n{count} intervention(s) sélectionnée(s)",
+            font=ctk.CTkFont(size=13, weight="bold"), justify="center",
+        ).pack(padx=20, pady=(20, 12))
+        self._statut_var = ctk.StringVar(value=StatutIntervention.PLANIFIEE.value)
+        ctk.CTkOptionMenu(
+            self, values=[s.value for s in StatutIntervention],
+            variable=self._statut_var,
+            fg_color=ACCENT, button_color=ACCENT_HOVER, width=240,
+        ).pack(pady=8)
+        btns = ctk.CTkFrame(self, fg_color="transparent")
+        btns.pack(pady=(12, 16))
+        ctk.CTkButton(
+            btns, text="Annuler", width=110, fg_color=CARD_BG,
+            text_color=("black", "white"), hover_color=ACCENT_HOVER,
+            command=self.destroy,
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(
+            btns, text="Appliquer", width=110, fg_color=ACCENT,
+            hover_color=ACCENT_HOVER, command=self._apply,
+        ).pack(side="left", padx=6)
+
+    def _apply(self) -> None:
+        statut = StatutIntervention.from_value(self._statut_var.get())
+        self.destroy()
+        self._on_apply(statut)
 
 
 class LoginDialog(ctk.CTkToplevel):
@@ -832,7 +890,27 @@ class BovoApp(ctk.CTk):
         self.geometry(f"{width}x{height}")
         self.minsize(1100, 720)
         self._apply_window_icon()
+        # V1.2 : ouverture en plein écran natif (maximisé, pas fullscreen exclusif
+        # pour laisser la barre de titre + Alt-Tab natifs). Sous Windows on utilise
+        # ``state('zoomed')``, sous Linux/macOS ``attributes('-zoomed', True)``.
+        self.after(50, self._maximize_window)
         self.withdraw()  # masquée tant que le splash + login ne sont pas terminés.
+
+    def _maximize_window(self) -> None:
+        """Maximise la fenêtre principale (compat multi-OS)."""
+        try:
+            if sys.platform.startswith("win"):
+                self.state("zoomed")
+            else:
+                # Linux : ``-zoomed``. macOS Tk : ``fullscreen`` sinon fallback.
+                try:
+                    self.attributes("-zoomed", True)
+                except tk.TclError:
+                    sw = self.winfo_screenwidth()
+                    sh = self.winfo_screenheight()
+                    self.geometry(f"{sw}x{sh}+0+0")
+        except Exception as exc:  # noqa: BLE001 - non critique
+            logger.warning("Impossible de maximiser la fenêtre : %s", exc)
 
     # ------------------------------------------------------------------ #
     # Authentification & droits
@@ -1127,7 +1205,6 @@ class BovoApp(ctk.CTk):
         ]
         if self._can("view_planning"):
             items += [("import", "Importer PDF", "upload")]
-        if self._can("view_audit"):
         # V1.2 : L'onglet « Historique » a été retiré du menu. Le chargement
         # de l'audit trail depuis le serveur pouvait dépasser plusieurs
         # dizaines de secondes sur une base volumineuse et faire planter
@@ -1356,10 +1433,26 @@ class BovoApp(ctk.CTk):
         )
         day_box.grid(row=row, column=col, sticky="nsew", padx=3, pady=3)
         text_color = ("black", "white") if cell.in_month else "#6C6C72"
+        # Ligne de tête : numéro du jour + indicateur Jour/Nuit s'il y a des interventions.
+        head_row = ctk.CTkFrame(day_box, fg_color="transparent")
+        head_row.pack(fill="x", padx=6, pady=(6, 0))
         ctk.CTkLabel(
-            day_box, text=str(cell.day_date.day),
+            head_row, text=str(cell.day_date.day),
             font=ctk.CTkFont(size=13, weight="bold"), text_color=text_color,
-        ).pack(anchor="nw", padx=8, pady=(6, 0))
+        ).pack(side="left")
+        if cell.count:
+            n_nuit = sum(1 for iv in cell.interventions if is_nuit(iv))
+            n_jour = cell.count - n_nuit
+            markers = ""
+            if n_jour:
+                markers += f"{JOUR_ICON}{n_jour} "
+            if n_nuit:
+                markers += f"{NUIT_ICON}{n_nuit}"
+            if markers:
+                ctk.CTkLabel(
+                    head_row, text=markers.strip(),
+                    font=ctk.CTkFont(size=11), text_color=text_color,
+                ).pack(side="right")
 
         if cell.count:
             badge = ctk.CTkButton(
@@ -1379,14 +1472,19 @@ class BovoApp(ctk.CTk):
             return
         win = ctk.CTkToplevel(self)
         win.title(f"Interventions du {format_date_fr(day)}")
-        win.geometry("460x520")
+        win.geometry("520x520")
         win.grab_set()
         scroll = ctk.CTkScrollableFrame(win, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=12, pady=12)
         for iv in interventions:
+            nuit = is_nuit(iv)
+            icon = NUIT_ICON if nuit else JOUR_ICON
             ctk.CTkButton(
-                scroll, text=f"{iv.ouvrage} · {iv.objet} ({iv.statut.value})",
-                anchor="w", fg_color=CARD_BG, text_color=("black", "white"),
+                scroll,
+                text=f"{icon}  {iv.ouvrage} · {iv.objet} ({iv.statut.value})",
+                anchor="w",
+                fg_color=NUIT_BG if nuit else JOUR_BG,
+                text_color=("black", "white"),
                 hover_color=ACCENT, height=40,
                 command=lambda i=iv: self._open_detail(i),
             ).pack(fill="x", pady=4)
@@ -1447,6 +1545,19 @@ class BovoApp(ctk.CTk):
             variable=self._auto_var, command=lambda _: self._refresh_table(),
             fg_color=ACCENT, button_color=ACCENT_HOVER, width=160,
         ).pack(side="left", padx=4)
+        # --- Tri par Secteur / Date (V1.3) ------------------------------- #
+        self._sort_by_var = ctk.StringVar(value="Tri : Date")
+        ctk.CTkOptionMenu(
+            toolbar, values=["Tri : Date", "Tri : Secteur"],
+            variable=self._sort_by_var, command=lambda _: self._refresh_table(),
+            fg_color=ACCENT, button_color=ACCENT_HOVER, width=140,
+        ).pack(side="left", padx=4)
+        self._sort_dir_var = ctk.StringVar(value="↓ Desc")
+        ctk.CTkOptionMenu(
+            toolbar, values=["↓ Desc", "↑ Asc"],
+            variable=self._sort_dir_var, command=lambda _: self._refresh_table(),
+            fg_color=ACCENT, button_color=ACCENT_HOVER, width=90,
+        ).pack(side="left", padx=4)
 
         exports = ctk.CTkFrame(frame, fg_color="transparent")
         exports.grid(row=1, column=0, sticky="ew", pady=10)
@@ -1457,15 +1568,23 @@ class BovoApp(ctk.CTk):
                 text_color=("black", "white"), hover_color=ACCENT,
                 command=lambda f=fmt: self._export(f),
             ).pack(side="left", padx=4)
-        # Suppression groupée (visible uniquement si l'utilisateur a le droit d'éditer).
+        # Actions groupées : modifier statut + supprimer (édition uniquement).
+        self._iv_status_btn: ctk.CTkButton | None = None
         if self._can("edit"):
+            self._iv_status_btn = ctk.CTkButton(
+                exports, text="✎  Modifier statut",
+                width=180, fg_color=CARD_BG, text_color=("black", "white"),
+                hover_color=ACCENT, state="disabled",
+                command=self._change_selected_status,
+            )
+            self._iv_status_btn.pack(side="left", padx=(16, 0))
             self._iv_selected_btn = ctk.CTkButton(
                 exports, text="🗑  Supprimer sélection",
                 width=200, fg_color=ACCENT, hover_color=ACCENT_HOVER,
                 state="disabled",
                 command=self._delete_selected_interventions,
             )
-            self._iv_selected_btn.pack(side="left", padx=(16, 0))
+            self._iv_selected_btn.pack(side="left", padx=(8, 0))
         self._count_label = ctk.CTkLabel(exports, text="", text_color="#9A9AA0")
         self._count_label.pack(side="right")
 
@@ -1478,10 +1597,17 @@ class BovoApp(ctk.CTk):
         """Lit les filtres actifs de la vue interventions."""
         statut = self._statut_var.get()
         auto = self._auto_var.get()
+        # Traduction des libellés UI vers valeurs API.
+        sort_by_label = getattr(self, "_sort_by_var", None)
+        sort_dir_label = getattr(self, "_sort_dir_var", None)
+        sort_by = "secteur" if (sort_by_label and "Secteur" in sort_by_label.get()) else "date"
+        sort_dir = "asc" if (sort_dir_label and "Asc" in sort_dir_label.get()) else "desc"
         return {
             "search": self._search_var.get().strip(),
             "statut": "" if statut == "Tous statuts" else statut,
             "autoroute": "" if auto == "Toutes autoroutes" else auto,
+            "sort_by": sort_by,
+            "sort_dir": sort_dir,
         }
 
     def _refresh_table(self) -> None:
@@ -1506,6 +1632,11 @@ class BovoApp(ctk.CTk):
                 command=lambda: self._toggle_all_interventions(interventions),
             )
             select_all_cb.pack(side="left", padx=(10, 4), pady=8)
+        # Colonne "☀/🌙" pour Jour/Nuit (24px), puis les colonnes de données.
+        ctk.CTkLabel(
+            head, text="J/N", width=32, anchor="center",
+            font=ctk.CTkFont(size=12, weight="bold"),
+        ).pack(side="left", padx=(2, 4), pady=8)
         headers = ["Ouvrage", "Objet", "Autoroute", "Dates", "Type", "Statut"]
         widths = [110, 150, 90, 180, 130, 110]
         for text, w in zip(headers, widths, strict=False):
@@ -1520,7 +1651,10 @@ class BovoApp(ctk.CTk):
 
     def _table_row(self, iv: Intervention, widths: list[int]) -> None:
         """Construit une ligne cliquable de la table des interventions."""
-        row = ctk.CTkFrame(self._table, fg_color=SURFACE, height=40, corner_radius=8)
+        # Différenciation visuelle Jour/Nuit : couleur de fond légère.
+        nuit = is_nuit(iv)
+        row_bg = NUIT_BG if nuit else SURFACE
+        row = ctk.CTkFrame(self._table, fg_color=row_bg, height=40, corner_radius=8)
         row.pack(fill="x", pady=2)
         dates = (
             f"{format_date_fr(iv.date_debut)} → {format_date_fr(iv.date_fin)}"
@@ -1539,11 +1673,21 @@ class BovoApp(ctk.CTk):
                 command=lambda iid=iv.id, v=var: self._toggle_intervention(iid, v.get()),
             )
             cb.pack(side="left", padx=(10, 4), pady=8)
+        # Icône Jour/Nuit — cliquable comme le reste de la ligne.
+        icon_label = ctk.CTkLabel(
+            row, text=NUIT_ICON if nuit else JOUR_ICON,
+            width=32, anchor="center",
+            font=ctk.CTkFont(size=15),
+            text_color=("#3F51B5", "#8AA9FF") if nuit else ("#B26A00", "#F4B400"),
+        )
+        icon_label.pack(side="left", padx=(2, 4), pady=8)
+        icon_label.bind("<Button-1>", handler)
         row.bind("<Button-1>", handler)
         for col, (value, width) in enumerate(zip(cells, widths, strict=False)):
             is_statut = col == len(cells) - 1
             label = ctk.CTkLabel(
                 row, text=value, width=width, anchor="w",
+                fg_color=row_bg,
                 text_color=STATUT_COLORS.get(iv.statut) if is_statut else ("black", "white"),
                 font=ctk.CTkFont(size=12),
             )
@@ -1567,18 +1711,58 @@ class BovoApp(ctk.CTk):
         self._refresh_table()
 
     def _update_iv_delete_btn(self) -> None:
-        """Met à jour l'état et le libellé du bouton 'Supprimer sélection'."""
-        if self._iv_selected_btn is None:
-            return
+        """Met à jour l'état des boutons 'Supprimer' et 'Modifier statut'."""
+        n = len(self._selected_iv)
+        if self._iv_selected_btn is not None:
+            if n == 0:
+                self._iv_selected_btn.configure(
+                    state="disabled", text="🗑  Supprimer sélection",
+                )
+            else:
+                self._iv_selected_btn.configure(
+                    state="normal",
+                    text=f"🗑  Supprimer sélection ({n})",
+                )
+        status_btn = getattr(self, "_iv_status_btn", None)
+        if status_btn is not None:
+            if n == 0:
+                status_btn.configure(state="disabled", text="✎  Modifier statut")
+            else:
+                status_btn.configure(
+                    state="normal", text=f"✎  Modifier statut ({n})",
+                )
+
+    def _change_selected_status(self) -> None:
+        """Ouvre un dialogue puis applique le statut choisi à la sélection."""
         n = len(self._selected_iv)
         if n == 0:
-            self._iv_selected_btn.configure(
-                state="disabled", text="🗑  Supprimer sélection",
+            return
+        BatchStatusDialog(self, n, self._apply_batch_status)
+
+    def _apply_batch_status(self, statut: StatutIntervention) -> None:
+        """Applique ``statut`` à toutes les interventions sélectionnées."""
+        failed: list[int] = []
+        for iv_id in list(self._selected_iv):
+            try:
+                self._planner.set_statut(iv_id, statut)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Changement de statut intervention %s a échoué : %s",
+                    iv_id, exc,
+                )
+                failed.append(iv_id)
+        updated = len(self._selected_iv) - len(failed)
+        self._selected_iv.clear()
+        self._refresh_table()
+        if failed:
+            messagebox.showwarning(
+                "Modification en masse",
+                f"{updated} statut(s) mis à jour, {len(failed)} échec(s).",
             )
         else:
-            self._iv_selected_btn.configure(
-                state="normal",
-                text=f"🗑  Supprimer sélection ({n})",
+            messagebox.showinfo(
+                "Modification en masse",
+                f"{updated} intervention(s) passées en « {statut.value} ».",
             )
 
     def _delete_selected_interventions(self) -> None:

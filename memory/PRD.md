@@ -114,9 +114,41 @@ L'application doit aussi être visuellement plus soignée.
 - `tests/test_remember_me.py` : 6 tests.
 - `tests/test_v4_fixes.py` : 5 tests.
 - `tests/test_asf_export.py` : 4 tests (PDF ASF + multi-ouvrages).
-- `tests/test_import_review.py` (**nouveau**) : 5 tests (statut par défaut,
+- `tests/test_import_review.py` : 5 tests (statut par défaut,
   imported_ids, reprogrammation, préservation En cours).
-- **Total : 61 tests, 100 % passing.**
+- `tests/test_v14_fixes.py` : week-ends + export PDF.
+- `tests/test_planning_parser.py` : parser Planning 2026.
+- `tests/test_v13_sort_nuit.py` (**nouveau**) : 6 tests (détection
+  Jour/Nuit, transmission des params `sort_by` / `sort_dir` du client
+  Python vers l'API).
+- **Total : 81 tests, 100 % passing.**
+
+## Nouveautés V1.3 (Fév 2026 — session courante)
+- **Ouverture plein écran natif** (`state("zoomed")` sur Windows,
+  `attributes("-zoomed", True)` sur Linux/macOS) : déjà en place, validé.
+- **Modification par lot du statut** : bouton « ✎ Modifier statut »
+  dans la barre d'export, ouvre un dialogue avec dropdown de tous les
+  statuts et applique le choix aux lignes cochées. Un compteur `(N)`
+  reflète en temps réel la sélection.
+- **Tri Secteur / Date (asc/desc)** :
+  * Backend : `/api/interventions?sort_by=(date|secteur)&sort_dir=(asc|desc)`
+    (route :mod:`app.routers.interventions`).
+  * Client REST : `ApiClient.list_interventions` / `fetch_all_interventions`
+    propagent les nouveaux paramètres.
+  * `RemotePlanner.search` transmet `sort_by` / `sort_dir` au backend.
+  * GUI : deux `CTkOptionMenu` (« Tri : Date/Secteur » + « ↓ Desc / ↑ Asc »)
+    dans la barre d'outils de la vue interventions.
+- **Différenciation visuelle Jour vs Nuit** :
+  * Fonction `app.models.is_nuit` (testable sans Tk) qui détecte
+    l'intervention de nuit via `commentaire == "Nuit: Oui"` (produit
+    par `planning_pdf_parser`) ou `(Nuit)` dans l'`objet`.
+  * Vue Interventions : icône `☀️` (jaune) ou `🌙` (bleu) devant chaque
+    ligne + fond légèrement teinté (jaune paille pour jour, bleu
+    ardoise pour nuit).
+  * Calendrier mensuel : chaque case affiche « ☀N 🌙N » à droite du
+    numéro pour indiquer la répartition jour/nuit du jour.
+  * Dialogue « Interventions du jour » : boutons colorés + icône
+    Jour/Nuit devant chaque entrée.
 
 ## Backlog / P1
 - Test end-to-end desktop → backend (nécessite un environnement Windows

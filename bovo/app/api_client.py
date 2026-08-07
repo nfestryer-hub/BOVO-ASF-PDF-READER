@@ -232,11 +232,14 @@ class ApiClient:
     # ------------------------------------------------------------------ #
     def list_interventions(
         self, *, search: str = "", autoroute: str = "", statut: str = "",
+        sort_by: str = "", sort_dir: str = "",
         limit: int = 500, offset: int = 0,
     ) -> list[dict[str, Any]]:
         """Liste les interventions avec filtres optionnels.
 
         V1.2 : ajout de la pagination server-side (``limit`` / ``offset``).
+        V1.3 : ajout du tri server-side (``sort_by`` = ``date`` | ``secteur``,
+        ``sort_dir`` = ``asc`` | ``desc``).
         Utilisé par :meth:`fetch_all_interventions` pour paginer
         automatiquement quand le nombre total dépasse ``limit``.
         """
@@ -244,13 +247,15 @@ class ApiClient:
             "limit": limit, "offset": offset,
         }
         for key, val in (("search", search), ("autoroute", autoroute),
-                         ("statut", statut)):
+                         ("statut", statut),
+                         ("sort_by", sort_by), ("sort_dir", sort_dir)):
             if val:
                 params[key] = val
         return self._request("GET", "/api/interventions", params=params)
 
     def fetch_all_interventions(
         self, *, search: str = "", autoroute: str = "", statut: str = "",
+        sort_by: str = "", sort_dir: str = "",
         page_size: int = 500,
     ) -> list[dict[str, Any]]:
         """Récupère TOUTES les interventions en paginant automatiquement.
@@ -265,6 +270,7 @@ class ApiClient:
         while True:
             page = self.list_interventions(
                 search=search, autoroute=autoroute, statut=statut,
+                sort_by=sort_by, sort_dir=sort_dir,
                 limit=page_size, offset=offset,
             )
             all_rows.extend(page)

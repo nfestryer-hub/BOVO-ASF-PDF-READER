@@ -209,3 +209,18 @@ class ParsedIntervention:
     def field_names(self) -> list[str]:
         """Liste des champs de la dataclass (utilitaire de debug/tests)."""
         return [f.name for f in fields(self)]
+
+
+def is_nuit(iv: Intervention) -> bool:
+    """Retourne ``True`` si l'intervention se déroule de nuit.
+
+    Se base sur deux heuristiques indépendantes du GUI :
+
+    * Le champ ``commentaire`` contient ``Nuit: Oui`` (produit par le
+      parser Planning 2026, voir :mod:`app.planning_pdf_parser`).
+    * Le champ ``objet`` contient explicitement ``(Nuit)``.
+
+    Sinon on considère l'intervention comme diurne.
+    """
+    haystack = f"{iv.commentaire or ''} {iv.objet or ''}".lower()
+    return "nuit: oui" in haystack or "(nuit)" in haystack

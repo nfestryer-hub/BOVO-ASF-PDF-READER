@@ -247,13 +247,15 @@ class RemotePlanner:
 
     def search(
         self, *, search: str = "", statut: str = "", autoroute: str = "",
-        secteur: str = "", ouvrage: str = "", query: str = "", **_: Any,
+        secteur: str = "", ouvrage: str = "", query: str = "",
+        sort_by: str = "", sort_dir: str = "", **_: Any,
     ) -> list[Intervention]:
         """Recherche filtrée d'interventions (compat Planner.search).
 
         Accepte les mêmes kwargs que ``Planner.search`` (``search``,
         ``statut``, ``autoroute``, ``secteur``) + alias legacy ``query`` /
-        ``ouvrage`` pour rétro-compatibilité.
+        ``ouvrage`` pour rétro-compatibilité. V1.3 : ajoute ``sort_by``
+        (``date`` | ``secteur``) et ``sort_dir`` (``asc`` | ``desc``).
         """
         api_filters: dict[str, str] = {}
         if autoroute and autoroute not in ("Toutes", ""):
@@ -263,6 +265,10 @@ class RemotePlanner:
         needle = search or query or ouvrage
         if needle:
             api_filters["search"] = needle
+        if sort_by:
+            api_filters["sort_by"] = sort_by
+        if sort_dir:
+            api_filters["sort_dir"] = sort_dir
         results = self._fetch_all(**api_filters)
         # Filtrage secteur côté client (le backend ne l'expose pas encore).
         if secteur:
