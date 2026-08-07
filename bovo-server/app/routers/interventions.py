@@ -26,9 +26,25 @@ def list_interventions(
     search: Annotated[str, Query(max_length=200)] = "",
     autoroute: Annotated[str, Query(max_length=20)] = "",
     statut: Annotated[str, Query(max_length=40)] = "",
+    limit: Annotated[int, Query(ge=1, le=5000)] = 500,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[InterventionOut]:
-    """Retourne les interventions avec filtres optionnels."""
-    query = select(Intervention).order_by(Intervention.date_debut.desc(), Intervention.id.desc())
+    """Retourne les interventions avec filtres et pagination optionnels.
+
+    Pagination V1.2 :
+      * ``limit`` : nombre max de résultats (défaut 500, cap 5000).
+      * ``offset`` : décalage — permet une pagination client.
+      * ``X-Total-Count`` : nombre total renvoyé dans les en-têtes de
+        réponse (via un ``Response`` middleware si besoin — pour l'instant
+        le client peut re-requêter avec un grand ``limit`` s'il veut le
+        compte exact).
+
+    Le tri est déterministe (``date_debut DESC, id DESC``) pour que la
+    pagination soit stable entre appels.
+    """
+    query = select(Intervention).order_by(
+        Intervention.date_debut.desc().nullslast(), Intervention.id.desc(),
+    )
     if search:
         like = f"%{search}%"
         query = query.where(or_(
@@ -40,6 +56,7 @@ def list_interventions(
         query = query.where(Intervention.autoroute == autoroute)
     if statut:
         query = query.where(Intervention.statut == statut)
+    query = query.offset(offset).limit(limit)
     rows = db.scalars(query).all()
     return [InterventionOut.model_validate(r) for r in rows]
 

@@ -240,7 +240,9 @@ class RemotePlanner:
     # Lecture
     # ------------------------------------------------------------------ #
     def _fetch_all(self, **filters: str) -> list[Intervention]:
-        rows = self._client.list_interventions(**filters)
+        # V1.2 : passe par ``fetch_all_interventions`` qui pagine
+        # automatiquement pour éviter les timeouts sur bases volumineuses.
+        rows = self._client.fetch_all_interventions(**filters)
         return [_intervention_from_api(r) for r in rows]
 
     def search(

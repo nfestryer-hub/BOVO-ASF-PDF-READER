@@ -105,6 +105,14 @@ class PdfParser:
     def parse_file(self, pdf_path: Path) -> list[ParsedIntervention]:
         """Analyse un PDF et retourne la liste des interventions extraites.
 
+        V1.2 : détecte automatiquement le format du PDF et route vers le
+        bon parser :
+
+        * **« Planning 2026 »** (bloc autoroute + PR + tableau) — traité par
+          :func:`app.planning_pdf_parser.parse_planning_pdf`.
+        * **« Listing_Ouvrages_BOVO »** (format historique) — traité par
+          l'extracteur tabulaire PyMuPDF ci-dessous.
+
         Args:
             pdf_path: Chemin du fichier PDF.
 
@@ -117,6 +125,27 @@ class PdfParser:
         """
         if not pdf_path.exists():
             raise FileNotFoundError(f"PDF introuvable : {pdf_path}")
+
+        # Détection format Planning ASF (blocs A63/A64 + « Date retenue »).
+        try:
+            from app.planning_pdf_parser import is_planning_format, parse_planning_pdf
+            if is_planning_format(pdf_path):
+                logger.info(
+                    "%s : format Planning ASF détecté, parsing dédié.",
+                    pdf_path.name,
+                )
+                parsed = parse_planning_pdf(pdf_path)
+                logger.info(
+                    "%s : %d intervention(s) extraite(s) (Planning).",
+                    pdf_path.name, len(parsed),
+                )
+                return parsed
+        except Exception as exc:  # noqa: BLE001 - fallback vers l'ancien parser
+            logger.warning(
+                "Détection Planning ASF échouée pour %s : %s — fallback tabulaire.",
+                pdf_path.name, exc,
+            )
+
         try:
             document = fitz.open(str(pdf_path))
         except Exception as exc:  # noqa: BLE001

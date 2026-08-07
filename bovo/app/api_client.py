@@ -232,12 +232,49 @@ class ApiClient:
     # ------------------------------------------------------------------ #
     def list_interventions(
         self, *, search: str = "", autoroute: str = "", statut: str = "",
+        limit: int = 500, offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """Liste les interventions avec filtres optionnels."""
-        params = {k: v for k, v in {
-            "search": search, "autoroute": autoroute, "statut": statut,
-        }.items() if v}
+        """Liste les interventions avec filtres optionnels.
+
+        V1.2 : ajout de la pagination server-side (``limit`` / ``offset``).
+        Utilisé par :meth:`fetch_all_interventions` pour paginer
+        automatiquement quand le nombre total dépasse ``limit``.
+        """
+        params: dict[str, Any] = {
+            "limit": limit, "offset": offset,
+        }
+        for key, val in (("search", search), ("autoroute", autoroute),
+                         ("statut", statut)):
+            if val:
+                params[key] = val
         return self._request("GET", "/api/interventions", params=params)
+
+    def fetch_all_interventions(
+        self, *, search: str = "", autoroute: str = "", statut: str = "",
+        page_size: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Récupère TOUTES les interventions en paginant automatiquement.
+
+        Empile les pages tant que la dernière n'est pas plus courte que
+        ``page_size``. Évite le timeout serveur sur les gros exports
+        (>500 interventions) tout en restant transparent pour les
+        appelants existants.
+        """
+        all_rows: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            page = self.list_interventions(
+                search=search, autoroute=autoroute, statut=statut,
+                limit=page_size, offset=offset,
+            )
+            all_rows.extend(page)
+            if len(page) < page_size:
+                break
+            offset += page_size
+            # Sécurité anti-boucle (max 100k interventions).
+            if offset > 100_000:
+                break
+        return all_rows
 
     def create_intervention(self, data: dict[str, Any]) -> dict[str, Any]:
         """Crée une intervention (Admin ou Planificateur)."""

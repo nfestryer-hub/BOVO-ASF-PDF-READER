@@ -1,0 +1,42 @@
+{
+  "summary": "Backend-only regression + new features testing for Bovo ASF Manager V14. Ran full pytest suite (75 tests) and validated acceptance criteria manually: Planning 2026 PDF parser, format auto-detection, night interventions detection, client pagination, backend API limit/offset params.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/bovo/tests/test_planning_parser.py",
+    "/app/bovo/tests/test_v14_fixes.py",
+    "/app/bovo/tests/test_bovo.py",
+    "/app/test_reports/pytest/planning_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "planning_pdf_parser.py + parser_pdf.py dispatch is clean and non-regressive (Listing PDF still returns 51 rows via old tabular parser).",
+    "Backend list_interventions router correctly uses Query(ge=1, le=5000) for limit and ge=0 for offset with deterministic ordering by (date_debut DESC, id DESC) - stable pagination.",
+    "fetch_all_interventions client-side pagination correctly stops early when page < 500 (validated by dedicated test).",
+    "Minor: parser produces 7 'Nuit: Oui' interventions where spec asked 'at least one' - well above threshold."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "N/A - local tests only, no remote API calls.",
+  "seed_data_creation": "None - used existing sample PDFs at /app/bovo/sample/Planning_2026.pdf and Listing_Ouvrages_BOVO.pdf.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 75 pytest tests pass in ~9s. Manual verification confirmed: Planning_2026.pdf parses to 11 interventions (5 A63 + 6 A64, all with ouvrage+autoroute+dates); 7 marked 'Nuit: Oui'; Listing PDF still routes to old parser (51 rows). Backend router at /app/bovo-server/app/routers/interventions.py has limit(ge=1,le=5000, default 500) + offset(ge=0) with stable ORDER BY date_debut DESC, id DESC. No regressions detected.",
+  "acceptance_criteria_results": {
+    "planning_pdf_parseable_>=5_interventions": "PASS (11 interventions extracted)",
+    "distribution_A63_5_A64_6": "PASS (exactly matches spec)",
+    "auto_detection_planning_vs_listing": "PASS (is_planning_format True/False respectively)",
+    "night_interventions_detected": "PASS (7 rows with 'Nuit: Oui')",
+    "client_pagination_transparent": "PASS (test_api_client_pagination_transparent + single_page_stops_early)",
+    "no_regression_previous_68_tests": "PASS (75/75 total tests green)",
+    "backend_api_limit_offset_params": "PASS (verified in source; ge=1 le=5000, ge=0)"
+  },
+  "final_status": "PASS - 75 tests passed, no regressions, all V14 acceptance criteria met."
+}
