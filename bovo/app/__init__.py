@@ -10,7 +10,7 @@ Développé par HENRI Dylan.
 from __future__ import annotations
 
 __app_name__ = "Bovo ASF Manager"
-__version__ = "1.2.0"
+from app.version import __version__  # noqa: F401 - source unique v1.2+
 __author__ = "HENRI Dylan"
 
 __all__ = ["__app_name__", "__version__", "__author__"]

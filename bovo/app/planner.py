@@ -37,9 +37,6 @@ class ImportResult:
     interventions_created: int = 0
     interventions_updated: int = 0
     errors: list[str] = field(default_factory=list)
-    #: IDs des interventions créées/mises à jour lors de cet import.
-    #: Consommé par le dialogue GUI « Cocher pour planifier ».
-    imported_ids: list[int] = field(default_factory=list)
 
     @property
     def total_interventions(self) -> int:
@@ -52,7 +49,6 @@ class ImportResult:
         self.interventions_created += other.interventions_created
         self.interventions_updated += other.interventions_updated
         self.errors.extend(other.errors)
-        self.imported_ids.extend(other.imported_ids)
 
 
 class Planner:
@@ -121,31 +117,12 @@ class Planner:
         return result
 
     def _import_single(self, pdf_path: Path) -> ImportResult:
-        """Traite un seul PDF (parser + upsert + métadonnées).
-
-        Depuis V4 :
-          * Nouvelles interventions → statut « À planifier » (brouillon).
-          * Si l'ouvrage existe déjà avec statut avancé (En cours, Terminée),
-            son statut est préservé.
-          * Les IDs des interventions créées/mises à jour sont ajoutés dans
-            ``result.imported_ids`` pour le dialogue de revue post-import.
-        """
+        """Traite un seul PDF (parser + upsert + métadonnées)."""
         result = ImportResult(files_processed=1)
         parsed_list = self._parser.parse_file(pdf_path)
         for parsed in parsed_list:
-            intervention = self._to_intervention(parsed, pdf_path)
-            # Préserve le statut avancé de l'existant si présent.
-            existing = self._db.get_intervention_by_ouvrage(intervention.ouvrage)
-            if existing is not None:
-                if existing.statut in (
-                    StatutIntervention.EN_COURS,
-                    StatutIntervention.TERMINEE,
-                ):
-                    intervention.statut = existing.statut
-                elif existing.statut == StatutIntervention.PLANIFIEE:
-                    intervention.statut = StatutIntervention.PLANIFIEE
-            saved, created = self._db.upsert_intervention(intervention)
-            result.imported_ids.append(saved.id or 0)
+            intervention = self._to_intervention(parsed)
+            _, created = self._db.upsert_intervention(intervention)
             if created:
                 result.interventions_created += 1
             else:
@@ -170,19 +147,13 @@ class Planner:
         return result
 
     @staticmethod
-    def _to_intervention(
-        parsed: ParsedIntervention, pdf_path: Path | None = None,
-    ) -> Intervention:
-        """Convertit un résultat de parsing en entité persistable.
-
-        Depuis V4, le statut par défaut est « À planifier » (brouillon) pour
-        les interventions datées. L'utilisateur promeut ensuite via le
-        dialogue de revue post-import.
-        """
-        if parsed.dates:
-            statut = StatutIntervention.A_PLANIFIER
-        else:
-            statut = StatutIntervention.A_FAIRE
+    def _to_intervention(parsed: ParsedIntervention) -> Intervention:
+        """Convertit un résultat de parsing en entité persistable."""
+        statut = (
+            StatutIntervention.PLANIFIEE
+            if parsed.dates
+            else StatutIntervention.A_FAIRE
+        )
         return Intervention(
             ouvrage=parsed.ouvrage,
             objet=parsed.objet,
@@ -197,7 +168,7 @@ class Planner:
             date_debut=parsed.date_debut,
             date_fin=parsed.date_fin,
             statut=statut,
-            pdf_path=parsed.pdf_path or (str(pdf_path) if pdf_path else ""),
+            pdf_path=parsed.pdf_path,
             commentaire=parsed.observations,
         )
 
@@ -269,13 +240,3 @@ class Planner:
                 entity_id=str(intervention_id),
                 before=before.to_row() if before else {}, after={},
             )
-
-    def get(self, intervention_id: int) -> Intervention | None:
-        """Retourne une intervention par son ID (ou ``None`` si absente).
-
-        Ajouté en V1.2 pour aligner l'API du :class:`Planner` local sur
-        celle du :class:`RemotePlanner`, utilisée notamment par la fiche
-        d'intervention imprimable (charge chaque ligne cochée par ID).
-        """
-        return self._db.get_intervention_by_id(intervention_id)
-

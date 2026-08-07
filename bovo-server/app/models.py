@@ -21,17 +21,9 @@ from app.db import Base
 
 
 class Role(str, PyEnum):
-    """Rôles applicatifs de Bovo ASF Manager.
-
-    Depuis V1.2 :
-      * ``INSPECTEUR_ITV`` — comme Admin mais sans journal / historique /
-        utilisateurs.
-      * ``PLANIFICATEUR`` — planning + import PDF (full), inspections ASF
-        en lecture seule.
-    """
+    """Rôles applicatifs de Bovo ASF Manager."""
 
     ADMIN = "Admin"
-    INSPECTEUR_ITV = "Inspecteur ITV"
     PLANIFICATEUR = "Planificateur"
     CONSULTANT = "Consultant"
 

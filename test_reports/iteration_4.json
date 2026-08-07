@@ -1,0 +1,26 @@
+{
+  "summary": "Ran the full pytest suite for the Bovo ASF Manager V14 branch. All 68 tests pass, including the 5 tests in test_v14_fixes.py covering the 4 reported bugs. Manually re-verified: (1) version unified — `app.__version__` == `app.version.__version__` == '1.6.0'; (2) Calendar excludes weekends — CalendarModel._index_by_day for Intervention 04/09/2026→30/09/2026 returns exactly 19 keys, none with weekday>=5; (3) PDF export contains data — test_pdf_export_inspections_shows_data & test_pdf_export_rapports_shows_data confirm inserted values ('42', 'A62', 'Hugo') appear in extracted PDF text via PyMuPDF get_text(); (4) Regression suite (test_bovo.py 40 tests, test_remember_me.py 6, test_updater.py 17) — all green.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/bovo/tests/test_v14_fixes.py",
+    "/app/bovo/tests/test_bovo.py",
+    "/app/bovo/tests/test_remember_me.py",
+    "/app/bovo/tests/test_updater.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Note: request mentions 'test_v4_fixes.py' but actual file is 'test_v14_fixes.py' — minor doc/typo. Not a code bug.",
+    "app/inspections.py:243 InspectionService.save_row silently drops unknown keys — could bite integrators; consider raising or logging when payload contains columns not in the spec.",
+    "The calendar weekend-filter uses `current.weekday() < 5` — French bank holidays (jours fériés) are still counted as working days. Not requested in this iteration but worth flagging for ASF context."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (68/68)", "frontend": "N/A (desktop CustomTkinter app, skipped per request)"},
+  "test_credentials": "N/A — tests use local SQLite tmp_path fixtures, no network/API.",
+  "seed_data_creation": "None — pytest fixtures create isolated tmp databases per test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bovo is a CustomTkinter DESKTOP app (Windows/Linux) — no web UI, no FastAPI backend running in supervisor. Testing is done exclusively via `cd /app/bovo && python -m pytest tests/ -v`. The 5 V14 fix tests are in tests/test_v14_fixes.py. Version source of truth is app/version.py imported in app/__init__.py. PDF fix lives in app/exporter.py table_to_pdf (line_height/header_h/row_h margins). Weekend filter in app/calendar.py CalendarModel._index_by_day (weekday()<5). Note the correct test filename is test_v14_fixes.py (not test_v4_fixes.py as mentioned in the request).",
+  "rca of the issue": "All 4 V14 bugs previously reported were correctly fixed by the main agent: (Bug 4 PDF empty) increasing line_height (cell_font_size+5), header_h (+14) and minimum row_h to 20pt makes insert_textbox return positive so text is drawn; verified by extracting PDF text with PyMuPDF. (Bug 2 weekends) added `if current.weekday() < 5:` guard in _index_by_day loop, verified with Sept 2026 fixture (19 weekdays, 0 weekend keys). (Version) app/__init__.py now re-exports from app.version — single source. Bug 1 (auto-update trigger at startup) and Bug 3 (history freeze) are UI/thread-lifecycle issues in CustomTkinter and are not covered by the pytest suite; the review request specifies backend-only unit test coverage on modules exporter/calendar/version, all of which pass."
+}

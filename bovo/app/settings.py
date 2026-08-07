@@ -1,14 +1,8 @@
 """Gestion des paramètres applicatifs de Bovo ASF Manager.
 
-Les paramètres sont persistés dans la table ``settings`` de SQLite pour la
-vitesse d'accès. Trois clés critiques (``server_url``,
-``remembered_username``, ``remembered_refresh_token``) sont **également**
-dupliquées dans un fichier JSON du dossier utilisateur
-(:mod:`app.local_config`) pour survivre à une éventuelle suppression /
-corruption de la base SQLite locale.
-
-Cette redondance garantit qu'après le premier lancement, l'application ne
-redemande jamais l'URL du serveur ni les identifiants « Se souvenir de moi ».
+Les paramètres sont persistés dans la table ``settings`` de SQLite. Cette
+classe expose des accès typés (thème, dernier dossier, dimensions de fenêtre,
+dossiers PDF/Export, sauvegarde automatique) avec des valeurs par défaut.
 """
 
 from __future__ import annotations
@@ -17,7 +11,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app import local_config
 from app.database import Database
 from app.logger import get_logger
 from app.utils import EXPORT_DIR, PROJECT_ROOT
@@ -37,18 +30,14 @@ _DEFAULTS: dict[str, Any] = {
     "remembered_username": "",
     "remembered_refresh_token": "",
     "remembered_hash": "",  # legacy — non utilisé, conservé pour compat.
-}
-
-# Clés répliquées dans le fichier JSON utilisateur.
-_MIRRORED_KEYS: set[str] = {
-    "server_url",
-    "remembered_username",
-    "remembered_refresh_token",
+    # Auto-update : URL/chemin UNC vers `latest.json` publié par l'admin.
+    # Vide → pas de vérification. Exemple : \\SERVEUR\Partage\Bovo\latest.json
+    "update_source": "",
 }
 
 
 class Settings:
-    """Façade typée au-dessus de la table ``settings`` + fichier JSON local."""
+    """Façade typée au-dessus de la table ``settings``."""
 
     def __init__(self, database: Database) -> None:
         """Charge les paramètres existants et applique les valeurs par défaut."""
@@ -57,42 +46,26 @@ class Settings:
         self._load()
 
     def _load(self) -> None:
-        """Recharge le cache depuis la base ; fallback sur le fichier JSON."""
-        json_mirror = local_config.load()
+        """Recharge le cache depuis la base, en complétant les manques."""
         for key, default in _DEFAULTS.items():
             stored = self._db.get_setting(key)
-            value: Any
             if stored is None:
-                # Fallback : recuperer depuis le mirror JSON s'il existe.
-                if key in _MIRRORED_KEYS and json_mirror.get(key):
-                    value = json_mirror[key]
-                    self._db.set_setting(key, json.dumps(value))
-                    logger.info(
-                        "Settings: restauration '%s' depuis le fichier JSON.", key,
-                    )
-                else:
-                    self._db.set_setting(key, json.dumps(default))
-                    value = default
+                self._db.set_setting(key, json.dumps(default))
+                self._cache[key] = default
             else:
                 try:
-                    value = json.loads(stored)
+                    self._cache[key] = json.loads(stored)
                 except json.JSONDecodeError:
-                    value = stored
-                # Réplique la valeur SQLite dans le JSON si manquant.
-                if key in _MIRRORED_KEYS and value and json_mirror.get(key) != value:
-                    local_config.set_value(key, str(value))
-            self._cache[key] = value
+                    self._cache[key] = stored
 
     def get(self, key: str, default: Any = None) -> Any:
         """Retourne la valeur d'un paramètre."""
         return self._cache.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
-        """Définit et persiste un paramètre (SQLite + JSON pour les clés miroir)."""
+        """Définit et persiste un paramètre."""
         self._cache[key] = value
         self._db.set_setting(key, json.dumps(value))
-        if key in _MIRRORED_KEYS:
-            local_config.set_value(key, str(value or ""))
         logger.debug("Paramètre mis à jour : %s = %s", key, value)
 
     @property
@@ -137,6 +110,18 @@ class Settings:
     def server_url(self, value: str) -> None:
         """Persiste l'URL du serveur (sans slash final)."""
         self.set("server_url", (value or "").strip().rstrip("/"))
+
+    # ------------------------------------------------------------------ #
+    # Auto-update
+    # ------------------------------------------------------------------ #
+    @property
+    def update_source(self) -> str:
+        """Chemin ou URL vers ``latest.json`` (partage réseau ou HTTP)."""
+        return str(self._cache.get("update_source") or "").strip()
+
+    @update_source.setter
+    def update_source(self, value: str) -> None:
+        self.set("update_source", (value or "").strip())
 
     # ------------------------------------------------------------------ #
     # « Se souvenir de moi » — session locale persistée

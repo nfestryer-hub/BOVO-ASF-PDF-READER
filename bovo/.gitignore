@@ -14,9 +14,3 @@ database/*.db-shm
 logs/*.log*
 exports/*
 !exports/.gitkeep
-
-
-# PyInstaller (compilation .exe)
-build/
-dist/
-*.manifest

@@ -196,10 +196,6 @@ class ImportResult:
     interventions_created: int = 0
     interventions_updated: int = 0
     errors: list[str] = field(default_factory=list)
-    #: IDs des interventions créées ou mises à jour lors de cet import.
-    #: Utilisés par le GUI pour afficher le dialogue de revue post-import
-    #: (« Cocher pour planifier »).
-    imported_ids: list[int] = field(default_factory=list)
 
     @property
     def total_interventions(self) -> int:
@@ -395,33 +391,18 @@ class RemotePlanner:
     ) -> ImportResult:
         """Parse les PDF localement puis pousse chaque intervention via l'API.
 
-        Comportement V4 :
-          * Les nouvelles interventions détectées sont créées avec le statut
-            **« À planifier »** (brouillon) — pas « Planifiée » par défaut.
-            L'utilisateur promeut ensuite via la case à cocher du dialogue
-            de revue post-import.
-          * **Reprogrammation** : si un ouvrage existe déjà en base et que le
-            PDF l'apporte avec une **nouvelle date > aujourd'hui**, on met
-            à jour son ``date_debut``/``date_fin`` (via ``upsert``). L'entrée
-            gardée en base est donc l'entrée la plus récente / future.
-          * Un statut déjà « Terminée » ou « En cours » n'est PAS écrasé.
-
-        Retourne un :class:`ImportResult` avec la liste des ID d'interventions
-        créées/mises à jour, ce qui permet au GUI d'afficher le dialogue de
-        confirmation « Cocher pour planifier ».
+        Renvoie un :class:`ImportResult` (mirror de :class:`app.planner.ImportResult`)
+        avec ``files_processed`` / ``interventions_created`` / ``interventions_updated``
+        et ``errors: list[str]``.
         """
-        from app.parser_pdf import PdfParser  # import local (dép. lourde)
+        from app.pdf_parser import PdfParser  # import local (dép. lourde)
         parser = PdfParser()
         result = ImportResult()
-        today = date.today()
-        # Pré-charge les ouvrages existants (dict par ouvrage) pour détecter
-        # les mises à jour et pour préserver le statut si déjà en cours.
+        # Pré-charge la liste des ouvrages connus pour distinguer create/update.
         try:
-            existing_map: dict[str, Intervention] = {
-                iv.ouvrage: iv for iv in self._fetch_all()
-            }
+            existing_ouvrages = {iv.ouvrage for iv in self._fetch_all()}
         except ApiError:
-            existing_map = {}
+            existing_ouvrages = set()
         for idx, path in enumerate(paths, start=1):
             if progress is not None:
                 try:
@@ -431,63 +412,22 @@ class RemotePlanner:
             try:
                 items = parser.parse_file(path)
             except Exception as exc:  # noqa: BLE001 — surface le message.
-                logger.exception("Échec parsing %s", path.name)
                 result.errors.append(f"Échec import {path.name} : {exc}")
                 continue
             result.files_processed += 1
-            if not items:
-                result.errors.append(
-                    f"⚠️ {path.name} : aucune intervention détectée dans le PDF."
-                )
-            if progress is not None:
-                try:
-                    progress(
-                        idx, len(paths),
-                        f"{path.name} → {len(items)} intervention(s) détectée(s)"
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
             for parsed in items:
                 iv = _parsed_to_intervention(parsed, path)
-                existing = existing_map.get(iv.ouvrage)
-                is_update = existing is not None
-                if is_update:
-                    # Préserve les statuts déjà avancés (En cours, Terminée).
-                    if existing.statut in (
-                        StatutIntervention.EN_COURS,
-                        StatutIntervention.TERMINEE,
-                    ):
-                        iv.statut = existing.statut
-                    # Si l'ouvrage est déjà PLANIFIEE et que la nouvelle date
-                    # est future, on garde le statut PLANIFIEE (reprogrammation).
-                    elif (
-                        existing.statut == StatutIntervention.PLANIFIEE
-                        and iv.date_debut and iv.date_debut > today
-                    ):
-                        iv.statut = StatutIntervention.PLANIFIEE
-                    # Sinon, on force le brouillon « À planifier ».
-                    else:
-                        iv.statut = StatutIntervention.A_PLANIFIER
+                is_update = iv.ouvrage in existing_ouvrages
                 try:
-                    saved = self.upsert(iv)
-                    result.imported_ids.append(saved.id or 0)
+                    self.upsert(iv)
                     if is_update:
                         result.interventions_updated += 1
                     else:
                         result.interventions_created += 1
-                    existing_map[iv.ouvrage] = saved
+                        existing_ouvrages.add(iv.ouvrage)
                 except ApiError as exc:
-                    logger.warning(
-                        "Échec upsert %s (%s): %s",
-                        iv.ouvrage, path.name, exc.detail,
-                    )
                     result.errors.append(
-                        f"Échec {iv.ouvrage} ({path.name}) : {exc.detail}",
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Erreur inattendue lors de l'upsert")
-                    result.errors.append(
-                        f"Erreur {iv.ouvrage} ({path.name}) : {exc}",
+                        f"Échec import {path.name} : {exc.detail}",
                     )
         return result
 
@@ -495,15 +435,14 @@ class RemotePlanner:
 def _parsed_to_intervention(parsed: Any, path: Path) -> Intervention:
     """Convertit un :class:`ParsedIntervention` en :class:`Intervention`.
 
-    Depuis V4, le statut par défaut d'un import PDF est **« À planifier »**
-    (brouillon). L'utilisateur promeut ensuite les interventions confirmées
-    en « Planifiée » via le dialogue de revue post-import. Une intervention
-    sans aucune date reste en « À faire ».
+    Mirror de :meth:`Planner._to_intervention` — évite l'import direct de
+    ``Planner`` (qui traînerait la dépendance SQLite).
     """
-    if getattr(parsed, "dates", None):
-        statut = StatutIntervention.A_PLANIFIER
-    else:
-        statut = StatutIntervention.A_FAIRE
+    statut = (
+        StatutIntervention.PLANIFIEE
+        if getattr(parsed, "dates", None)
+        else StatutIntervention.A_FAIRE
+    )
     return Intervention(
         ouvrage=parsed.ouvrage,
         objet=parsed.objet,
@@ -663,26 +602,14 @@ class RemoteInspectionService:
         return KPI_UNITS.get(key, "")
 
     def export_pdf(self, sheet: str, destination: Path) -> Path:
-        """Génère un PDF à partir des données API + Exporter local.
-
-        Pour ``sheet == "rapports"``, utilise la mise en page ASF officielle
-        (4 sections conformes au classeur ASF « Form visites assain
-        V2026-06-01 »). Sinon, mode tableur générique.
-        """
+        """Génère un PDF tableur à partir des données API + Exporter local."""
         from app.exporter import Exporter  # import local
-        exporter = Exporter(database=None)  # DB non requise pour le tableur
         rows = self.list_rows(sheet)
-        if sheet == "rapports":
-            from app.inspections import ASF_OUVRAGE_LAYOUTS, ASF_OUVRAGE_TYPES
-            return exporter.asf_rapports_to_pdf(
-                None, rows, destination,
-                layouts_by_ouvrage=ASF_OUVRAGE_LAYOUTS,
-                ouvrage_order=list(ASF_OUVRAGE_TYPES),
-            )
         columns = ORDERED_COLUMNS[sheet]
         labels = {f.column: f.label for f in FORM_FIELDS[sheet]}
         headers = [labels.get(c, c) for c in columns]
         data_rows = [[(row.get(c) or "") for c in columns] for row in rows]
+        exporter = Exporter(database=None)  # DB non requise pour le tableur
         title = f"Bovo ASF Manager — {SHEET_LABELS[sheet]}"
         return exporter.table_to_pdf(title, headers, data_rows, destination)
 

@@ -18,7 +18,7 @@ import threading
 from collections.abc import Callable
 from datetime import date, datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import Canvas, filedialog, messagebox
 from typing import Any
 
 import customtkinter as ctk
@@ -85,7 +85,7 @@ class LoginDialog(ctk.CTkToplevel):
         self._failed = 0
 
         self.title("Bovo ASF Manager — Connexion")
-        self.geometry("440x640")
+        self.geometry("440x620")
         self.resizable(False, False)
         self.configure(fg_color=SURFACE)
         self.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -143,12 +143,7 @@ class LoginDialog(ctk.CTkToplevel):
             body, text="Se souvenir de moi sur cet appareil",
             variable=self._remember_me, fg_color=ACCENT,
             hover_color=ACCENT_HOVER, checkbox_height=18, checkbox_width=18,
-        ).pack(anchor="w", pady=(0, 4))
-        ctk.CTkLabel(
-            body,
-            text="🔐  Votre session sera reconduite automatiquement pendant 30 jours.",
-            font=ctk.CTkFont(size=10), text_color="#7A7A80", anchor="w",
-        ).pack(anchor="w", pady=(0, 10))
+        ).pack(anchor="w", pady=(0, 14))
 
         # Pré-remplissage du username si mémorisé.
         if self._settings and self._settings.remembered_username:
@@ -180,7 +175,7 @@ class LoginDialog(ctk.CTkToplevel):
     def _center(self) -> None:
         """Centre la fenêtre de connexion à l'écran."""
         self.update_idletasks()
-        w, h = 440, 640
+        w, h = 440, 620
         x = (self.winfo_screenwidth() - w) // 2
         y = (self.winfo_screenheight() - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -328,14 +323,12 @@ class InterventionDialog(ctk.CTkToplevel):
         master: ctk.CTk,
         intervention: Intervention,
         on_status_change: Callable[[Intervention, StatutIntervention], None],
-        on_delete: Callable[[Intervention], None] | None = None,
     ) -> None:
         super().__init__(master)
         self._iv = intervention
         self._on_status_change = on_status_change
-        self._on_delete = on_delete
         self.title(f"Ouvrage {intervention.ouvrage}")
-        self.geometry("520x680")
+        self.geometry("520x620")
         self.configure(fg_color=SURFACE)
         self.grab_set()
 
@@ -393,42 +386,7 @@ class InterventionDialog(ctk.CTkToplevel):
             self, text="📄  Ouvrir le PDF", fg_color=ACCENT,
             hover_color=ACCENT_HOVER, height=42,
             command=self._open_pdf,
-        ).pack(fill="x", padx=20, pady=(0, 8))
-
-        # Bouton "Supprimer" — affiché uniquement si le callback est fourni
-        # (permet aux vues en lecture seule de masquer l'action).
-        if self._on_delete is not None:
-            ctk.CTkButton(
-                self, text="🗑️  Supprimer cette intervention",
-                fg_color="transparent", border_width=1,
-                text_color="#E63946", hover_color="#3A0F14",
-                border_color="#E63946", height=38,
-                command=self._delete_intervention,
-            ).pack(fill="x", padx=20, pady=(0, 16))
-        else:
-            # Espacement final équivalent quand le bouton n'est pas là.
-            ctk.CTkFrame(self, fg_color="transparent", height=8).pack()
-
-    def _delete_intervention(self) -> None:
-        """Confirme et délègue la suppression via le callback ``on_delete``."""
-        if not messagebox.askyesno(
-            "Supprimer l'intervention",
-            f"Supprimer définitivement l'intervention de l'ouvrage "
-            f"{self._iv.ouvrage} ?\n\n"
-            "Cette action est irréversible et retirera aussi l'entrée "
-            "du calendrier.",
-        ):
-            return
-        assert self._on_delete is not None
-        try:
-            self._on_delete(self._iv)
-        except Exception as exc:  # noqa: BLE001
-            messagebox.showerror(
-                "Suppression impossible",
-                f"Impossible de supprimer cette intervention :\n\n{exc}",
-            )
-            return
-        self.destroy()
+        ).pack(fill="x", padx=20, pady=(0, 16))
 
     def _change_status(self, value: str) -> None:
         """Délègue le changement de statut au callback fourni."""
@@ -447,7 +405,7 @@ class RowFormDialog(ctk.CTkToplevel):
     def __init__(
         self,
         master: ctk.CTk,
-        service: "RemoteInspectionService",
+        service: RemoteInspectionService,
         sheet: str,
         row_id: int | None,
         on_saved: Callable[[], None],
@@ -462,38 +420,25 @@ class RowFormDialog(ctk.CTkToplevel):
         label = service.sheet_label(sheet)
         verb = "Modifier" if row_id is not None else "Ajouter"
         self.title(f"{verb} — {label}")
-        # Formulaire ASF (rapports) : mise en page 4 sections, plus large.
-        if sheet == "rapports":
-            self.geometry("1180x780")
-        else:
-            self.geometry("560x680")
+        self.geometry("560x680")
         self.configure(fg_color=SURFACE)
         self.grab_set()
 
         head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
         head.pack(fill="x")
-        title_text = f"{verb} une entrée — {label}"
-        if sheet == "rapports":
-            title_text = (
-                f"{verb} un rapport d'inspection ASF "
-                "— formulaire visites assainissement V2026-06-01"
-            )
         ctk.CTkLabel(
-            head, text=title_text,
+            head, text=f"{verb} une entrée — {label}",
             font=ctk.CTkFont(size=18, weight="bold"), text_color="white",
         ).pack(padx=20, pady=16, anchor="w")
+
+        body = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=10)
 
         existing = service.get_row(sheet, row_id) if row_id is not None else {}
         if row_id is None and sheet == "rapports":
             existing = service.prefill_rapport()
-
-        if sheet == "rapports":
-            self._build_asf_sections(existing or {})
-        else:
-            body = ctk.CTkScrollableFrame(self, fg_color="transparent")
-            body.pack(fill="both", expand=True, padx=20, pady=10)
-            for field in service.form_fields(sheet):
-                self._build_field(body, field, (existing or {}).get(field.column, ""))
+        for field in service.form_fields(sheet):
+            self._build_field(body, field, (existing or {}).get(field.column, ""))
 
         if sheet == "inspections":
             self._wire_inspections_autocalc()
@@ -509,173 +454,6 @@ class RowFormDialog(ctk.CTkToplevel):
             text_color=("black", "white"), height=42, width=120,
             command=self.destroy,
         ).pack(side="left", padx=(10, 0))
-
-    # ------------------------------------------------------------------ #
-    # Mise en page ASF (rapports d'inspection) — 5 layouts distincts
-    # ------------------------------------------------------------------ #
-    def _build_asf_sections(self, existing: dict[str, str]) -> None:
-        """Construit le formulaire rapport en 4 sections ASF horizontales.
-
-        Le classeur ASF contient **5 onglets** (Caniveau, Cunette, Fossé,
-        Collecteur enterré, Descente d'eau), chacun avec une structure
-        légèrement différente (nombre de champs par section). Cette fonction :
-
-        1. Affiche un **sélecteur "Type d'ouvrage"** en haut du formulaire.
-        2. Rebuild dynamiquement les 4 sections quand l'utilisateur change
-           de type. La valeur des champs est conservée entre les rebuilds.
-        3. Chaque section est une carte colorée verticale
-           (rouge / bleu / orange / vert).
-        """
-        from app.inspections import ASF_OUVRAGE_TYPES, asf_layout_for
-
-        # Index rapide {column → FieldSpec} pour retrouver widget/référentiel.
-        self._asf_field_index: dict[str, FieldSpec] = {
-            f.column: f for f in self._service.form_fields("rapports")
-        }
-        self._asf_existing: dict[str, str] = dict(existing)
-
-        # Sélecteur "Type d'ouvrage" — en haut, très visible.
-        type_bar = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=10)
-        type_bar.pack(fill="x", padx=16, pady=(10, 4))
-        ctk.CTkLabel(
-            type_bar,
-            text="📋  Type d'ouvrage ASF (formulaire à remplir) :",
-            font=ctk.CTkFont(size=13, weight="bold"),
-        ).pack(side="left", padx=16, pady=12)
-        initial_type = existing.get("type_ouvrage", "Caniveau")
-        if initial_type not in ASF_OUVRAGE_TYPES:
-            initial_type = "Caniveau"
-        self._asf_type_var = ctk.StringVar(value=initial_type)
-        ctk.CTkOptionMenu(
-            type_bar, values=list(ASF_OUVRAGE_TYPES),
-            variable=self._asf_type_var, height=34, width=220,
-            fg_color=ACCENT, button_color=ACCENT_HOVER,
-            dropdown_hover_color=ACCENT,
-            command=self._on_asf_type_change,
-        ).pack(side="left", padx=(0, 16), pady=10)
-        ctk.CTkLabel(
-            type_bar,
-            text="La mise en page s'adapte automatiquement au type sélectionné.",
-            text_color="#8A8A90", font=ctk.CTkFont(size=11),
-        ).pack(side="left", padx=8)
-
-        # Conteneur des 4 sections (rebuild-able).
-        self._asf_body = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self._asf_body.pack(fill="both", expand=True, padx=12, pady=8)
-
-        # Widgets déjà créés — pour préserver les valeurs entre rebuilds.
-        self._widgets: dict[str, Any] = {}
-        # On force initialement type_ouvrage à la valeur du sélecteur.
-        self._render_asf_sections(asf_layout_for(initial_type))
-
-    def _on_asf_type_change(self, new_type: str) -> None:
-        """Callback quand l'utilisateur change de type d'ouvrage ASF.
-
-        On collecte d'abord les valeurs actuelles pour les préserver, puis
-        on reconstruit les 4 sections avec la mise en page du nouveau type.
-        """
-        from app.inspections import asf_layout_for
-
-        # Sauvegarde des valeurs actuellement saisies.
-        current_values = self._collect()
-        current_values["type_ouvrage"] = new_type
-        # Fusionne dans _asf_existing pour repopuler après rebuild.
-        self._asf_existing.update(current_values)
-        # Vide le conteneur, puis reconstruit.
-        for w in self._asf_body.winfo_children():
-            w.destroy()
-        self._widgets = {}
-        self._render_asf_sections(asf_layout_for(new_type))
-
-    def _render_asf_sections(
-        self, layout: list[tuple[str, list[tuple[str, str]]]],
-    ) -> None:
-        """(Re)dessine les 4 cartes de sections dans ``self._asf_body``."""
-        columns = ctk.CTkFrame(self._asf_body, fg_color="transparent")
-        columns.pack(fill="both", expand=True)
-        for i in range(len(layout)):
-            columns.grid_columnconfigure(i, weight=1, uniform="asf")
-        columns.grid_rowconfigure(0, weight=1)
-
-        # Couleurs d'accent ASF pour chaque section.
-        section_colors = ["#E63946", "#457B9D", "#F4A261", "#2A9D8F"]
-
-        for idx, (section_title, fields) in enumerate(layout):
-            color = section_colors[idx % len(section_colors)]
-            card = ctk.CTkFrame(columns, fg_color=CARD_BG, corner_radius=12)
-            card.grid(row=0, column=idx, sticky="nsew", padx=6, pady=4)
-
-            header = ctk.CTkFrame(card, fg_color=color, corner_radius=0, height=42)
-            header.pack(fill="x")
-            header.pack_propagate(False)
-            ctk.CTkLabel(
-                header, text=section_title, text_color="white",
-                font=ctk.CTkFont(size=13, weight="bold"), anchor="w",
-                wraplength=260, justify="left",
-            ).pack(padx=12, pady=8, fill="x")
-
-            content = ctk.CTkFrame(card, fg_color="transparent")
-            content.pack(fill="both", expand=True, padx=12, pady=10)
-
-            for column, label_text in fields:
-                field_spec = self._asf_field_index.get(column)
-                if field_spec is None:
-                    continue
-                labelled = FieldSpec(
-                    column=field_spec.column,
-                    label=label_text,
-                    widget=field_spec.widget,
-                    ref_key=field_spec.ref_key,
-                )
-                self._build_asf_field(
-                    content, labelled, self._asf_existing.get(column, ""),
-                )
-
-        # Champ caché "type_ouvrage" (piloté par le sélecteur en haut).
-        # On l'ajoute directement dans les widgets pour qu'il soit persisté.
-        type_var = ctk.StringVar(value=self._asf_type_var.get())
-        self._widgets["type_ouvrage"] = type_var
-        # Synchronise en permanence type_ouvrage avec le sélecteur ASF.
-        self._asf_type_var.trace_add(
-            "write", lambda *_a: type_var.set(self._asf_type_var.get()),
-        )
-
-    def _build_asf_field(
-        self, master: ctk.CTkBaseClass, field: FieldSpec, value: str,
-    ) -> None:
-        """Construit un champ ASF (label empilé au-dessus du widget, verticalement)."""
-        wrapper = ctk.CTkFrame(master, fg_color="transparent")
-        wrapper.pack(fill="x", pady=(0, 10))
-        ctk.CTkLabel(
-            wrapper, text=field.label, anchor="w",
-            font=ctk.CTkFont(size=11, weight="bold"),
-            text_color=("#333333", "#DDDDDD"),
-        ).pack(fill="x", pady=(0, 2))
-
-        if field.widget == "choice":
-            options = ["—", *self._service.referentiel(field.ref_key)]
-            var = ctk.StringVar(value=value if value in options else "—")
-            ctk.CTkOptionMenu(
-                wrapper, values=options, variable=var, height=32,
-                fg_color=ACCENT, button_color=ACCENT_HOVER, dropdown_hover_color=ACCENT,
-            ).pack(fill="x")
-            self._widgets[field.column] = var
-        elif field.widget == "long":
-            box = ctk.CTkTextbox(wrapper, height=70)
-            box.pack(fill="x")
-            box.insert("1.0", value)
-            self._widgets[field.column] = box
-        else:
-            display = value
-            if field.widget == "date" and value:
-                display = format_date_fr(parse_iso_date(value)) or value
-            var = ctk.StringVar(value=display)
-            placeholder = "JJ/MM/AAAA" if field.widget == "date" else ""
-            ctk.CTkEntry(
-                wrapper, textvariable=var, placeholder_text=placeholder,
-                height=32,
-            ).pack(fill="x")
-            self._widgets[field.column] = var
 
     def _build_field(
         self, master: ctk.CTkBaseClass, field: FieldSpec, value: str
@@ -786,206 +564,6 @@ class RowFormDialog(ctk.CTkToplevel):
             return
         self._on_saved()
         self.destroy()
-
-
-class ImportReviewDialog(ctk.CTkToplevel):
-    """Dialogue de revue post-import — coche les interventions à planifier.
-
-    Après un import PDF, toutes les interventions arrivent en statut
-    « À planifier » (brouillon). Ce dialogue liste ces interventions
-    dans une table à cases à cocher : les cases cochées seront promues
-    en « Planifiée » d'un clic sur « Confirmer la planification ».
-
-    L'utilisateur peut :
-      * cocher / décocher individuellement une ligne ;
-      * utiliser « Tout cocher » / « Tout décocher » ;
-      * fermer sans confirmer — dans ce cas, tout reste en « À planifier ».
-    """
-
-    def __init__(
-        self,
-        parent: ctk.CTk,
-        planner: Any,
-        imported_ids: list[int],
-        on_confirmed: Callable[[int, int], None] | None = None,
-    ) -> None:
-        """Construit le dialogue de revue post-import."""
-        super().__init__(parent)
-        self._planner = planner
-        self._imported_ids = imported_ids
-        self._on_confirmed = on_confirmed or (lambda a, b: None)
-
-        self.title("Revue post-import — Cocher pour planifier")
-        self.geometry("980x680")
-        self.configure(fg_color=SURFACE)
-        self.grab_set()
-        self.transient(parent)
-
-        # --- En-tête coloré --- #
-        head = ctk.CTkFrame(self, fg_color=ACCENT, corner_radius=0)
-        head.pack(fill="x")
-        ctk.CTkLabel(
-            head, text="Import PDF terminé — Cochez pour confirmer la planification",
-            font=ctk.CTkFont(size=18, weight="bold"), text_color="white",
-        ).pack(padx=24, pady=(16, 4), anchor="w")
-        ctk.CTkLabel(
-            head,
-            text=("Les interventions importées sont en brouillon « À planifier ». "
-                  "Cochez celles dont la date est confirmée pour les passer en "
-                  "« Planifiée » et les afficher dans le calendrier officiel."),
-            text_color="white", font=ctk.CTkFont(size=12),
-            wraplength=920, justify="left",
-        ).pack(padx=24, pady=(0, 16), anchor="w")
-
-        # --- Barre d'actions rapides --- #
-        actions_bar = ctk.CTkFrame(self, fg_color="transparent")
-        actions_bar.pack(fill="x", padx=20, pady=(12, 4))
-        ctk.CTkButton(
-            actions_bar, text="✓  Tout cocher", width=140,
-            fg_color="#2A9D8F", hover_color="#238478",
-            command=lambda: self._set_all(True),
-        ).pack(side="left", padx=(0, 8))
-        ctk.CTkButton(
-            actions_bar, text="✗  Tout décocher", width=140,
-            fg_color="transparent", border_width=1, text_color=("black", "white"),
-            command=lambda: self._set_all(False),
-        ).pack(side="left")
-        self._counter_lbl = ctk.CTkLabel(
-            actions_bar, text="", text_color="#9AA0A6",
-            font=ctk.CTkFont(size=12, weight="bold"),
-        )
-        self._counter_lbl.pack(side="right")
-
-        # --- Table des interventions --- #
-        table_wrap = ctk.CTkScrollableFrame(self, fg_color=CARD_BG, corner_radius=10)
-        table_wrap.pack(fill="both", expand=True, padx=20, pady=10)
-
-        header_row = ctk.CTkFrame(table_wrap, fg_color="transparent")
-        header_row.pack(fill="x", pady=(6, 6))
-        for text, w in [
-            ("", 40), ("Ouvrage", 130), ("Objet", 260),
-            ("Autoroute", 90), ("PR", 130),
-            ("Date début", 110), ("Date fin", 110),
-        ]:
-            ctk.CTkLabel(
-                header_row, text=text, width=w, anchor="w",
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#9AA0A6",
-            ).pack(side="left", padx=4)
-
-        # --- Charge les interventions à revoir --- #
-        self._checkboxes: dict[int, ctk.BooleanVar] = {}
-        interventions = self._load_interventions()
-        if not interventions:
-            ctk.CTkLabel(
-                table_wrap, text="Aucune intervention à revoir.",
-                text_color="#9AA0A6",
-            ).pack(pady=30)
-        else:
-            for iv in interventions:
-                self._build_row(table_wrap, iv)
-        self._update_counter()
-
-        # --- Boutons de confirmation --- #
-        footer = ctk.CTkFrame(self, fg_color="transparent")
-        footer.pack(fill="x", padx=20, pady=(4, 16))
-        ctk.CTkButton(
-            footer, text="Fermer sans confirmer",
-            fg_color="transparent", border_width=1, text_color=("black", "white"),
-            width=180, height=42, command=self._cancel,
-        ).pack(side="right", padx=(8, 0))
-        ctk.CTkButton(
-            footer, text="✅  Confirmer la planification",
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            width=240, height=42, command=self._confirm,
-        ).pack(side="right")
-
-    def _load_interventions(self) -> list[Any]:
-        """Charge les interventions importées à partir de leurs IDs."""
-        loaded: list[Any] = []
-        for iid in self._imported_ids:
-            try:
-                iv = self._planner.get(iid)
-                if iv is not None:
-                    loaded.append(iv)
-            except Exception:  # noqa: BLE001 - une entrée manquante ne bloque pas
-                continue
-        # Trie par date de début (les plus proches en premier), puis par ouvrage.
-        loaded.sort(key=lambda i: (
-            i.date_debut or date.max, str(getattr(i, "ouvrage", "") or "")
-        ))
-        return loaded
-
-    def _build_row(self, master: ctk.CTkBaseClass, iv: Any) -> None:
-        """Construit une ligne de la table avec case à cocher."""
-        row = ctk.CTkFrame(master, fg_color=SURFACE, corner_radius=8)
-        row.pack(fill="x", pady=3)
-
-        var = ctk.BooleanVar(value=False)
-        self._checkboxes[iv.id] = var
-        ctk.CTkCheckBox(
-            row, text="", variable=var, width=40, checkbox_width=22,
-            checkbox_height=22, fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            command=self._update_counter,
-        ).pack(side="left", padx=(10, 4), pady=8)
-
-        def _cell(text: str, width: int) -> None:
-            ctk.CTkLabel(
-                row, text=str(text or "—")[:60], width=width, anchor="w",
-                font=ctk.CTkFont(size=12),
-            ).pack(side="left", padx=4, pady=8)
-
-        _cell(iv.ouvrage, 130)
-        _cell(iv.objet, 260)
-        _cell(iv.autoroute, 90)
-        pr_range = f"{iv.pr_debut or '—'} → {iv.pr_fin or '—'}"
-        _cell(pr_range, 130)
-        _cell(format_date_fr(iv.date_debut) or "—", 110)
-        _cell(format_date_fr(iv.date_fin) or "—", 110)
-
-    def _set_all(self, value: bool) -> None:
-        """Coche/décoche toutes les lignes."""
-        for var in self._checkboxes.values():
-            var.set(value)
-        self._update_counter()
-
-    def _update_counter(self) -> None:
-        """Met à jour le compteur en haut à droite."""
-        checked = sum(1 for v in self._checkboxes.values() if v.get())
-        total = len(self._checkboxes)
-        self._counter_lbl.configure(
-            text=f"{checked} / {total} coché(s)  →  passeront en « Planifiée »",
-        )
-
-    def _confirm(self) -> None:
-        """Promeut les interventions cochées en « Planifiée »."""
-        promoted = 0
-        kept = 0
-        errors: list[str] = []
-        for iid, var in self._checkboxes.items():
-            if not var.get():
-                kept += 1
-                continue
-            try:
-                self._planner.set_statut(iid, StatutIntervention.PLANIFIEE)
-                promoted += 1
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"#{iid}: {exc}")
-        if errors:
-            messagebox.showwarning(
-                "Erreurs partielles",
-                f"{promoted} promue(s), {len(errors)} en erreur :\n\n"
-                + "\n".join(errors[:10]),
-            )
-        self._on_confirmed(promoted, kept)
-        self.destroy()
-
-    def _cancel(self) -> None:
-        """Ferme sans modifier les statuts."""
-        self._on_confirmed(0, len(self._checkboxes))
-        self.destroy()
-
-
 
 
 class AttachDocumentDialog(ctk.CTkToplevel):
@@ -1243,6 +821,12 @@ class BovoApp(ctk.CTk):
         self._cal_year = today.year
         self._cal_month = today.month
 
+        # État de sélection multi (pour suppression groupée).
+        self._selected_iv: set[int] = set()
+        self._selected_module: dict[str, set[int]] = {}
+        self._selected_module_btn: dict[str, ctk.CTkButton | None] = {}
+        self._iv_selected_btn: ctk.CTkButton | None = None
+
         self.title("Bovo ASF Manager")
         width, height = settings.window_size
         self.geometry(f"{width}x{height}")
@@ -1261,33 +845,109 @@ class BovoApp(ctk.CTk):
             default_view = "accueil"  # l'accueil reste accessible
         self._show_view(default_view)
         self.reveal()
+        # Vérifie en tâche de fond s'il existe une nouvelle version.
+        self._schedule_update_check()
+
+    # ------------------------------------------------------------------ #
+    # Auto-update
+    # ------------------------------------------------------------------ #
+    def _schedule_update_check(self) -> None:
+        """Lance la vérification de mise à jour en arrière-plan.
+
+        Ne bloque JAMAIS le démarrage : si le partage n'est pas joignable
+        ou la source vide, on ne fait rien.
+
+        V1.2 : logs explicites pour diagnostiquer les échecs silencieux
+        (chemin UNC non monté, réseau bloqué, latest.json mal formé…).
+        Consulte ``%APPDATA%\\BovoASF\\logs\\bovo.log`` pour voir le
+        détail.
+        """
+        source = self._settings.update_source
+        if not source:
+            logger.info(
+                "Auto-update : aucune source configurée "
+                "(Paramètres → Source des mises à jour). Skip.",
+            )
+            return
+        logger.info("Auto-update : vérification asynchrone de %s", source)
+        from app.updater import check_for_update_async
+
+        def _on_available(info: Any) -> None:
+            logger.info(
+                "Auto-update : mise à jour %s disponible (actuelle=%s).",
+                info.latest_version, info.current_version,
+            )
+            # Marshal sur le thread Tk (les widgets ne sont pas thread-safe).
+            self.after(0, lambda: self._show_update_banner(info))
+
+        check_for_update_async(source, _on_available)
+
+    def _show_update_banner(self, info: Any) -> None:
+        """Affiche un bandeau non-bloquant proposant l'installation.
+
+        Si ``info.mandatory`` est vrai, un modal exige l'installation
+        avant de continuer.
+        """
+        from app.updater import install_update
+
+        def _do_install(silent: bool) -> None:
+            """Télécharge (si HTTP) + installe silencieusement, puis ferme l'app."""
+            if install_update(info, silent=silent):
+                # Windows Installer va écraser les fichiers verrouillés
+                # dès qu'on ferme le processus courant.
+                self.after(500, self.on_close)
+            else:
+                messagebox.showerror(
+                    "Mise à jour",
+                    "L'installation n'a pas pu démarrer. Consulte les logs "
+                    "(%APPDATA%\\Bovo\\logs\\bovo.log) pour plus de détails.",
+                )
+
+        if info.mandatory:
+            if messagebox.askyesno(
+                "Mise à jour obligatoire",
+                f"Version {info.latest_version} disponible "
+                f"(installée : {info.current_version}).\n"
+                f"L'installation est requise pour continuer.\n\nInstaller maintenant ?",
+            ):
+                _do_install(silent=False)
+            return
+
+        # Bandeau doux en haut de la fenêtre principale.
+        banner = ctk.CTkFrame(self, fg_color=("#FFF4CC", "#4A3E1A"), height=42)
+        banner.grid(row=99, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 0))
+        banner.grid_columnconfigure(0, weight=1)
+        text = (
+            f"🚀  Nouvelle version {info.latest_version} disponible "
+            f"(actuelle : {info.current_version})."
+        )
+        ctk.CTkLabel(
+            banner, text=text, anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=("#7A5B00", "#F5D77A"),
+        ).grid(row=0, column=0, sticky="w", padx=12, pady=6)
+
+        ctk.CTkButton(
+            banner, text="Installer maintenant", width=170,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=lambda: _do_install(silent=True),
+        ).grid(row=0, column=1, padx=(6, 6), pady=4)
+        ctk.CTkButton(
+            banner, text="Plus tard", width=90, fg_color="transparent",
+            hover_color=CARD_BG,
+            command=banner.destroy,
+        ).grid(row=0, column=2, padx=(0, 12), pady=4)
 
     def _can(self, action: str) -> bool:
-        """Raccourci de vérification de droits sur la session courante.
-
-        Utilise :func:`getattr` avec fallback pour rester compatible avec
-        d'anciennes versions de ``auth.py`` qui n'auraient pas encore la
-        méthode granulaire ``can_edit_inspections`` / ``can_import_pdf``.
-        Sans ce filet, une désynchronisation entre les fichiers du
-        téléchargement (typique après un ``git pull`` partiel ou un zip
-        partiellement extrait) faisait crasher le splash au démarrage.
-        """
+        """Raccourci de vérification de droits sur la session courante."""
         if self._auth is None:
             return True  # mode test / sans auth
         session = self._auth.session
-        # Fallbacks : si la méthode granulaire n'existe pas encore
-        # (ancienne version d'auth.py), on retombe sur ``can_edit``.
-        def _call(name: str, fallback: str = "can_edit") -> bool:
-            method = getattr(session, name, None) or getattr(session, fallback, None)
-            return bool(method()) if callable(method) else False
-
         return {
-            "edit": _call("can_edit"),
-            "edit_inspections": _call("can_edit_inspections", "can_edit"),
-            "view_planning": _call("can_view_planning"),
-            "import_pdf": _call("can_import_pdf", "can_edit"),
-            "manage_users": _call("can_manage_users"),
-            "view_audit": _call("can_view_audit"),
+            "edit": session.can_edit(),
+            "view_planning": session.can_view_planning(),
+            "manage_users": session.can_manage_users(),
+            "view_audit": session.can_view_audit(),
         }.get(action, False)
 
     def _current_username(self) -> str:
@@ -1465,17 +1125,19 @@ class BovoApp(ctk.CTk):
             ("inspections", "Inspections ASF", "tools"),
             ("documents", "Documents", "document"),
         ]
-        if self._can("import_pdf"):
+        if self._can("view_planning"):
             items += [("import", "Importer PDF", "upload")]
         if self._can("view_audit"):
-            items += [("historique", "Historique", "clock")]
+        # V1.2 : L'onglet « Historique » a été retiré du menu. Le chargement
+        # de l'audit trail depuis le serveur pouvait dépasser plusieurs
+        # dizaines de secondes sur une base volumineuse et faire planter
+        # l'app (freeze du thread Tk). Fonctionnalité conservée en base
+        # (persistée), mais non exposée. On peut la ré-activer via une CLI
+        # ou un futur onglet asynchrone.
         if self._can("manage_users"):
             items += [("utilisateurs", "Utilisateurs", "users")]
-        # Journal accessible seulement aux rôles avec droit d'audit
-        # (masqué pour Planificateur et Inspecteur ITV depuis la V1.2).
-        if self._can("view_audit"):
-            items += [("journal", "Journal", "journal")]
         items += [
+            ("journal", "Journal", "journal"),
             ("parametres", "Paramètres", "settings"),
         ]
         return items
@@ -1795,31 +1457,19 @@ class BovoApp(ctk.CTk):
                 text_color=("black", "white"), hover_color=ACCENT,
                 command=lambda f=fmt: self._export(f),
             ).pack(side="left", padx=4)
-        # Fiche par intervention — imprimable, 1 page par intervention.
-        ctk.CTkButton(
-            exports, text="🖨️  Fiches planning (sélection)", width=220,
-            fg_color="#457B9D", hover_color="#35617D",
-            command=self._export_intervention_fiches,
-        ).pack(side="left", padx=(20, 4))
-        # Suppression multiple des interventions cochées.
+        # Suppression groupée (visible uniquement si l'utilisateur a le droit d'éditer).
         if self._can("edit"):
-            self._iv_selection_label = ctk.CTkLabel(
-                exports, text="", text_color="#9AA0A6",
-                font=ctk.CTkFont(size=11, weight="bold"),
-            )
-            self._iv_selection_label.pack(side="right", padx=8)
-            ctk.CTkButton(
-                exports, text="🗑️  Supprimer sélection", width=170,
-                fg_color="#3A0F14", hover_color="#5C161C",
-                text_color="#FF6B6B", border_width=1, border_color=ACCENT,
+            self._iv_selected_btn = ctk.CTkButton(
+                exports, text="🗑  Supprimer sélection",
+                width=200, fg_color=ACCENT, hover_color=ACCENT_HOVER,
+                state="disabled",
                 command=self._delete_selected_interventions,
-            ).pack(side="right", padx=4)
+            )
+            self._iv_selected_btn.pack(side="left", padx=(16, 0))
         self._count_label = ctk.CTkLabel(exports, text="", text_color="#9A9AA0")
-        self._count_label.pack(side="right", padx=8)
+        self._count_label.pack(side="right")
 
-        # État des cases à cocher pour la suppression multiple.
-        self._iv_selection: dict[int, ctk.BooleanVar] = {}
-
+        self._selected_iv.clear()
         self._table = ctk.CTkScrollableFrame(frame, fg_color="transparent")
         self._table.grid(row=2, column=0, sticky="nsew")
         self._refresh_table()
@@ -1840,9 +1490,22 @@ class BovoApp(ctk.CTk):
             widget.destroy()
         interventions = self._planner.search(**self._current_filters())
         self._count_label.configure(text=f"{len(interventions)} résultat(s)")
+        # Nettoie la sélection des IDs qui ne sont plus visibles.
+        visible_ids = {iv.id for iv in interventions if iv.id is not None}
+        self._selected_iv &= visible_ids
 
         head = ctk.CTkFrame(self._table, fg_color=CARD_BG, corner_radius=8)
         head.pack(fill="x", pady=(0, 4))
+        # « Tout sélectionner » (colonne 0), visible seulement si édition possible.
+        if self._can("edit"):
+            self._iv_select_all_var = ctk.BooleanVar(
+                value=bool(visible_ids) and self._selected_iv == visible_ids
+            )
+            select_all_cb = ctk.CTkCheckBox(
+                head, text="", width=28, variable=self._iv_select_all_var,
+                command=lambda: self._toggle_all_interventions(interventions),
+            )
+            select_all_cb.pack(side="left", padx=(10, 4), pady=8)
         headers = ["Ouvrage", "Objet", "Autoroute", "Dates", "Type", "Statut"]
         widths = [110, 150, 90, 180, 130, 110]
         for text, w in zip(headers, widths, strict=False):
@@ -1853,26 +1516,12 @@ class BovoApp(ctk.CTk):
 
         for iv in interventions:
             self._table_row(iv, widths)
+        self._update_iv_delete_btn()
 
     def _table_row(self, iv: Intervention, widths: list[int]) -> None:
         """Construit une ligne cliquable de la table des interventions."""
-        row = ctk.CTkFrame(self._table, fg_color=SURFACE, height=42, corner_radius=8)
+        row = ctk.CTkFrame(self._table, fg_color=SURFACE, height=40, corner_radius=8)
         row.pack(fill="x", pady=2)
-        can_edit = self._can("edit")
-
-        # Case à cocher pour la suppression multiple (V1.2).
-        if can_edit and iv.id is not None:
-            var = self._iv_selection.get(iv.id)
-            if var is None:
-                var = ctk.BooleanVar(value=False)
-                self._iv_selection[iv.id] = var
-            ctk.CTkCheckBox(
-                row, text="", variable=var, width=32,
-                checkbox_width=20, checkbox_height=20,
-                fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                command=self._refresh_iv_selection_counter,
-            ).pack(side="left", padx=(10, 4), pady=8)
-
         dates = (
             f"{format_date_fr(iv.date_debut)} → {format_date_fr(iv.date_fin)}"
             if iv.date_debut else "—"
@@ -1882,6 +1531,14 @@ class BovoApp(ctk.CTk):
             iv.type_ouvrage or "—", iv.statut.value,
         ]
         handler = lambda _event=None, i=iv: self._open_detail(i)  # noqa: E731
+        # Case à cocher pour sélection multiple (avant les cellules).
+        if self._can("edit") and iv.id is not None:
+            var = ctk.BooleanVar(value=iv.id in self._selected_iv)
+            cb = ctk.CTkCheckBox(
+                row, text="", width=28, variable=var,
+                command=lambda iid=iv.id, v=var: self._toggle_intervention(iid, v.get()),
+            )
+            cb.pack(side="left", padx=(10, 4), pady=8)
         row.bind("<Button-1>", handler)
         for col, (value, width) in enumerate(zip(cells, widths, strict=False)):
             is_statut = col == len(cells) - 1
@@ -1893,161 +1550,71 @@ class BovoApp(ctk.CTk):
             label.pack(side="left", padx=6, pady=8)
             label.bind("<Button-1>", handler)
 
-        # Bouton corbeille (accès rapide) — visible pour les rôles avec droit d'édition.
-        if can_edit:
-            def _quick_delete(_e: object = None, i: Intervention = iv) -> None:
-                if messagebox.askyesno(
-                    "Supprimer",
-                    f"Supprimer l'intervention {i.ouvrage} ({i.objet}) ?\n\n"
-                    "Cette action est irréversible.",
-                ):
-                    self._delete_intervention(i)
-            trash = ctk.CTkButton(
-                row, text="🗑", width=44, height=32,
-                fg_color="#3A0F14", text_color="#FF6B6B",
-                hover_color=ACCENT, border_width=1, border_color=ACCENT,
-                command=_quick_delete,
-            )
-            trash.pack(side="right", padx=(4, 10))
+    def _toggle_intervention(self, iv_id: int, selected: bool) -> None:
+        """Ajoute/retire une intervention de la sélection multiple."""
+        if selected:
+            self._selected_iv.add(iv_id)
+        else:
+            self._selected_iv.discard(iv_id)
+        self._update_iv_delete_btn()
 
-    def _refresh_iv_selection_counter(self) -> None:
-        """Met à jour l'étiquette « N sélectionné(s) » de la vue Interventions."""
-        if not hasattr(self, "_iv_selection_label"):
+    def _toggle_all_interventions(self, interventions: list[Intervention]) -> None:
+        """Sélectionne ou déselectionne toutes les interventions visibles."""
+        if self._iv_select_all_var.get():
+            self._selected_iv = {iv.id for iv in interventions if iv.id is not None}
+        else:
+            self._selected_iv.clear()
+        self._refresh_table()
+
+    def _update_iv_delete_btn(self) -> None:
+        """Met à jour l'état et le libellé du bouton 'Supprimer sélection'."""
+        if self._iv_selected_btn is None:
             return
-        count = sum(1 for v in self._iv_selection.values() if v.get())
-        self._iv_selection_label.configure(
-            text=f"✓ {count} sélectionné(s)" if count else "",
-            text_color="#FF6B6B" if count else "#9AA0A6",
-        )
+        n = len(self._selected_iv)
+        if n == 0:
+            self._iv_selected_btn.configure(
+                state="disabled", text="🗑  Supprimer sélection",
+            )
+        else:
+            self._iv_selected_btn.configure(
+                state="normal",
+                text=f"🗑  Supprimer sélection ({n})",
+            )
 
     def _delete_selected_interventions(self) -> None:
-        """Supprime toutes les interventions cochées après confirmation."""
-        ids = [iid for iid, var in self._iv_selection.items() if var.get()]
-        if not ids:
-            messagebox.showinfo(
-                "Aucune sélection",
-                "Cochez d'abord les interventions à supprimer, puis relancez l'action.",
-            )
+        """Supprime en masse les interventions cochées, avec confirmation."""
+        n = len(self._selected_iv)
+        if n == 0:
             return
         if not messagebox.askyesno(
             "Suppression multiple",
-            f"Supprimer définitivement les {len(ids)} interventions "
-            "sélectionnées ?\n\n"
-            "Cette action est irréversible et retire aussi leurs entrées "
-            "du calendrier.",
+            f"Supprimer les {n} intervention(s) sélectionnée(s) ? Cette action est irréversible.",
         ):
             return
-        ok, errors = 0, []
-        for iid in ids:
+        failed: list[int] = []
+        for iv_id in list(self._selected_iv):
             try:
-                self._planner.delete(iid)
-                ok += 1
+                self._planner.delete(iv_id)
             except Exception as exc:  # noqa: BLE001
-                logger.exception("Échec suppression intervention #%s", iid)
-                errors.append(f"#{iid}: {exc}")
-        self._iv_selection = {}
+                logger.warning("Suppression intervention %s a échoué : %s", iv_id, exc)
+                failed.append(iv_id)
+        deleted = n - len(failed)
+        self._selected_iv.clear()
         self._refresh_table()
-        self._refresh_iv_selection_counter()
-        msg = f"✅ {ok} intervention(s) supprimée(s)."
-        if errors:
-            msg += f"\n\n⚠️ {len(errors)} erreur(s) :\n" + "\n".join(errors[:10])
-            messagebox.showwarning("Suppression partielle", msg)
-        else:
-            messagebox.showinfo("Suppression terminée", msg)
-
-    def _export_intervention_fiches(self) -> None:
-        """Exporte une fiche PDF imprimable **pour les interventions sélectionnées**.
-
-        Depuis V1.2, seules les lignes cochées (case en début de rangée) sont
-        exportées — évite de générer 300 pages par mégarde. Si aucune ligne
-        n'est cochée, l'utilisateur est invité à faire une sélection.
-        """
-        # Récupère les IDs cochés (BooleanVar True).
-        selected_ids = [
-            iid for iid, var in getattr(self, "_iv_selection", {}).items()
-            if var.get()
-        ]
-        if not selected_ids:
-            messagebox.showinfo(
-                "Aucune sélection",
-                "Cochez d'abord les interventions à imprimer (colonne de "
-                "gauche), puis relancez l'export « 🖨️ Fiches planning ».",
-            )
-            return
-        # Résout les objets Intervention correspondants.
-        interventions: list[Intervention] = []
-        for iid in selected_ids:
-            try:
-                iv = self._planner.get(iid)
-            except Exception:  # noqa: BLE001 - une entrée manquante ne bloque pas
-                iv = None
-            if iv is not None:
-                interventions.append(iv)
-        if not interventions:
+        if failed:
             messagebox.showwarning(
-                "Aucune fiche générée",
-                "Les interventions sélectionnées n'ont pas pu être chargées "
-                "depuis le serveur. Vérifiez votre connexion et réessayez.",
+                "Suppression multiple",
+                f"{deleted} supprimée(s), {len(failed)} échec(s). Voir logs pour détails.",
             )
-            return
-        path = filedialog.asksaveasfilename(
-            title="Exporter les fiches d'intervention (imprimable)",
-            initialdir=str(self._settings.export_folder),
-            defaultextension=".pdf",
-            initialfile=f"fiches_planning_{len(interventions)}.pdf",
-            filetypes=[("PDF", "*.pdf")],
-        )
-        if not path:
-            return
-        try:
-            from app.exporter import Exporter
-            exporter = Exporter(database=None)
-            exporter.interventions_fiches_pdf(
-                interventions, Path(path),
-                planificateur=self._current_username(),
-            )
+        else:
             messagebox.showinfo(
-                "Fiches générées",
-                f"✅ {len(interventions)} fiche(s) générée(s) :\n\n{path}\n\n"
-                "Chaque intervention occupe une page A4 pour impression.",
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Échec export fiches PDF")
-            messagebox.showerror(
-                "Export impossible", f"Impossible de générer les fiches :\n\n{exc}",
+                "Suppression multiple",
+                f"{deleted} intervention(s) supprimée(s).",
             )
 
     def _open_detail(self, iv: Intervention) -> None:
         """Ouvre la fiche détaillée d'une intervention."""
-        InterventionDialog(
-            self, iv, self._on_status_change,
-            on_delete=self._delete_intervention if self._can("edit") else None,
-        )
-
-    def _delete_intervention(self, iv: Intervention) -> None:
-        """Supprime définitivement une intervention (et son entrée calendrier).
-
-        Cette action passe par ``self._planner.delete(iv.id)`` qui appelle
-        l'API REST (mode connecté) ou la base SQLite locale. La table de
-        la vue Interventions est rafraîchie ensuite.
-        """
-        if iv.id is None:
-            return
-        try:
-            self._planner.delete(iv.id)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Échec suppression intervention #%s", iv.id)
-            messagebox.showerror(
-                "Suppression impossible",
-                f"Impossible de supprimer l'intervention :\n\n{exc}",
-            )
-            return
-        # Rafraîchit la vue courante si elle affiche des interventions.
-        current = getattr(self, "_current_view", None)
-        if current == "interventions" and hasattr(self, "_table"):
-            self._refresh_table()
-        elif current in ("calendrier", "accueil"):
-            self._show_view(current)
+        InterventionDialog(self, iv, self._on_status_change)
 
     def _on_status_change(
         self, iv: Intervention, statut: StatutIntervention
@@ -2182,45 +1749,18 @@ class BovoApp(ctk.CTk):
         self.after(120, self._poll_progress)
 
     def _finish_import(self, result: ImportResult) -> None:
-        """Finalise l'import : récapitulatif + dialogue de revue à cocher.
-
-        Les interventions arrivent en statut « À planifier » par défaut.
-        Le dialogue de revue permet de cocher celles qui sont confirmées
-        et les promouvoir en « Planifiée » d'un clic.
-        """
+        """Finalise l'import : récapitulatif et notification."""
         self._progress.set(1)
         self._progress_label.configure(text="Import terminé.")
         summary = (
             f"✅ {result.files_processed} fichier(s) · "
-            f"{result.interventions_created} créée(s) · "
-            f"{result.interventions_updated} mise(s) à jour."
+            f"{result.interventions_created} créées · "
+            f"{result.interventions_updated} mises à jour."
         )
         self._append_import_log(summary)
         for err in result.errors:
             self._append_import_log(f"⚠️ {err}")
-
-        # Ouvre le dialogue "Cocher pour planifier" si au moins une
-        # intervention a été créée ou mise à jour.
-        if result.imported_ids:
-            self.after(200, lambda: ImportReviewDialog(
-                self, self._planner, result.imported_ids,
-                on_confirmed=self._on_review_confirmed,
-            ))
-        else:
-            messagebox.showinfo("Import terminé", summary)
-
-    def _on_review_confirmed(self, promoted_count: int, kept_count: int) -> None:
-        """Callback après clôture du dialogue de revue post-import."""
-        msg = (
-            f"✅ {promoted_count} intervention(s) confirmée(s) → « Planifiée ».\n"
-            f"⏳ {kept_count} laissée(s) en « À planifier » (à revalider plus tard)."
-        )
-        self._append_import_log(msg)
-        messagebox.showinfo("Planification confirmée", msg)
-        # Rafraîchit la vue courante (calendrier / interventions).
-        current = getattr(self, "_current_view", None)
-        if current in ("calendrier", "interventions", "accueil"):
-            self._show_view(current)
+        messagebox.showinfo("Import terminé", summary)
 
     def _append_import_log(self, text: str) -> None:
         """Ajoute une ligne au journal d'import affiché."""
@@ -2237,65 +1777,26 @@ class BovoApp(ctk.CTk):
         frame = ctk.CTkFrame(self._content, fg_color="transparent")
         frame.grid(row=0, column=0, sticky="nsew")
         frame.grid_columnconfigure(0, weight=1)
-        frame.grid_rowconfigure(2, weight=1)
+        frame.grid_rowconfigure(1, weight=1)
 
         header = ctk.CTkFrame(frame, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 4))
-        title_box = ctk.CTkFrame(header, fg_color="transparent")
-        title_box.pack(side="left")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 12))
         ctk.CTkLabel(
-            title_box, text="Inspections ASF (ITV)",
-            font=ctk.CTkFont(size=26, weight="bold"),
-        ).pack(anchor="w")
-        ctk.CTkLabel(
-            title_box,
-            text="Mise en page conforme au formulaire ASF « Visites assainissement V2026-06-01 »",
-            text_color="#8A8A90", font=ctk.CTkFont(size=12),
-        ).pack(anchor="w")
-        if self._can("edit_inspections"):
+            header, text="Inspections ASF (ITV)",
+            font=ctk.CTkFont(size=24, weight="bold"),
+        ).pack(side="left")
+        if self._can("edit"):
             ctk.CTkButton(
                 header, text="📊  Importer le classeur Excel", fg_color="#43AA8B",
-                hover_color="#369072", height=40,
-                command=self._import_workbook,
+                hover_color="#369072", command=self._import_workbook,
             ).pack(side="right")
 
-        # Barre de KPIs ASF (compte par module) — grand bandeau lisible.
-        stats_bar = ctk.CTkFrame(frame, fg_color=CARD_BG, corner_radius=12)
-        stats_bar.grid(row=1, column=0, sticky="ew", pady=(6, 14))
-        self._module_stat_labels: dict[str, ctk.CTkLabel] = {}
-        colors = {"inspections": ACCENT, "rapports": "#457B9D",
-                  "incidents": "#F4A261", "materiel": "#2A9D8F"}
-        for i, sheet in enumerate(self._inspections.SHEETS):
-            box = ctk.CTkFrame(stats_bar, fg_color="transparent")
-            box.grid(row=0, column=i, padx=18, pady=14, sticky="w")
-            stats_bar.grid_columnconfigure(i, weight=1)
-            color = colors.get(sheet, ACCENT)
-            ctk.CTkFrame(
-                box, fg_color=color, width=6, height=42, corner_radius=3
-            ).pack(side="left", padx=(0, 12))
-            info = ctk.CTkFrame(box, fg_color="transparent")
-            info.pack(side="left")
-            count_lbl = ctk.CTkLabel(
-                info, text="0", anchor="w",
-                font=ctk.CTkFont(size=22, weight="bold"),
-            )
-            count_lbl.pack(anchor="w")
-            ctk.CTkLabel(
-                info, text=self._inspections.sheet_label(sheet),
-                text_color="#8A8A90", font=ctk.CTkFont(size=11), anchor="w",
-            ).pack(anchor="w")
-            self._module_stat_labels[sheet] = count_lbl
-
         tabview = ctk.CTkTabview(frame, fg_color=CARD_BG)
-        tabview.grid(row=2, column=0, sticky="nsew")
+        tabview.grid(row=1, column=0, sticky="nsew")
 
         self._insp_search: dict[str, ctk.StringVar] = {}
-        self._insp_tables: dict[str, ctk.CTkScrollableFrame] = {}
-        #: État des cases à cocher pour la suppression multiple.
-        #: ``{sheet: {row_id: BooleanVar}}``
-        self._insp_selection: dict[str, dict[int, ctk.BooleanVar]] = {}
-        #: Labels du compteur de sélection dans la barre d'outils.
-        self._insp_selection_labels: dict[str, ctk.CTkLabel] = {}
+        self._insp_tables: dict[str, ctk.CTkFrame] = {}
+        self._insp_canvases: dict[str, Canvas] = {}
         for sheet in self._inspections.SHEETS:
             tab = tabview.add(self._inspections.sheet_label(sheet))
             tab.grid_columnconfigure(0, weight=1)
@@ -2306,10 +1807,9 @@ class BovoApp(ctk.CTk):
     def _build_module_tab(self, parent: ctk.CTkBaseClass, sheet: str) -> None:
         """Construit la barre d'outils et la table d'un module ASF.
 
-        La table utilise un :class:`ctk.CTkScrollableFrame` avec ascenseur
-        vertical **et** horizontal (V1.2). Ceci permet d'accéder à toutes
-        les colonnes et à la corbeille de chaque ligne même si la fenêtre
-        est étroite ou l'écran petit.
+        Le tableau supporte le défilement à la fois vertical ET horizontal
+        (indispensable quand les feuilles ASF ont beaucoup de colonnes,
+        ex. Rapports d'inspection avec 21 colonnes).
         """
         toolbar = ctk.CTkFrame(parent, fg_color="transparent")
         toolbar.grid(row=0, column=0, sticky="ew", pady=8)
@@ -2325,81 +1825,80 @@ class BovoApp(ctk.CTk):
             hover_color="#35617D",
             command=lambda sh=sheet: self._export_module_pdf(sh),
         ).pack(side="right", padx=4)
-        if self._can("edit_inspections"):
-            # Compteur de sélection multiple (« 3 sélectionné(s) »).
-            sel_lbl = ctk.CTkLabel(
-                toolbar, text="", text_color="#9AA0A6",
-                font=ctk.CTkFont(size=11, weight="bold"),
-            )
-            sel_lbl.pack(side="right", padx=(4, 8))
-            self._insp_selection_labels[sheet] = sel_lbl
-            ctk.CTkButton(
-                toolbar, text="🗑️  Supprimer sélection", width=170,
-                fg_color="#3A0F14", hover_color="#5C161C",
-                text_color="#FF6B6B", border_width=1, border_color=ACCENT,
-                command=lambda sh=sheet: self._delete_selected_module_rows(sh),
-            ).pack(side="right", padx=4)
+        if self._can("edit"):
             ctk.CTkButton(
                 toolbar, text="➕  Ajouter", width=120, fg_color=ACCENT,
                 hover_color=ACCENT_HOVER,
                 command=lambda sh=sheet: self._open_row_form(sh, None),
             ).pack(side="right", padx=4)
-
-        # ScrollableFrame vertical (le contenu s'adapte à la largeur).
-        table = ctk.CTkScrollableFrame(
-            parent, fg_color="transparent",
-            orientation="vertical",
-        )
-        table.grid(row=1, column=0, sticky="nsew")
-        self._insp_tables[sheet] = table
-
-    def _refresh_selection_counter(self, sheet: str) -> None:
-        """Met à jour le compteur « N sélectionné(s) » de la toolbar."""
-        selection = self._insp_selection.get(sheet, {})
-        count = sum(1 for v in selection.values() if v.get())
-        lbl = self._insp_selection_labels.get(sheet)
-        if lbl is not None:
-            lbl.configure(
-                text=f"✓ {count} sélectionné(s)" if count else "",
-                text_color="#FF6B6B" if count else "#9AA0A6",
+            # Bouton « Supprimer sélection » — désactivé tant que rien n'est coché.
+            btn = ctk.CTkButton(
+                toolbar, text="🗑  Supprimer sélection", width=200,
+                fg_color=ACCENT, hover_color=ACCENT_HOVER, state="disabled",
+                command=lambda sh=sheet: self._delete_selected_module_rows(sh),
             )
-
-    def _delete_selected_module_rows(self, sheet: str) -> None:
-        """Supprime toutes les lignes cochées du module."""
-        selection = self._insp_selection.get(sheet, {})
-        ids_to_delete = [rid for rid, var in selection.items() if var.get()]
-        if not ids_to_delete:
-            messagebox.showinfo(
-                "Aucune sélection",
-                "Cochez d'abord les lignes à supprimer, puis relancez l'action.",
-            )
-            return
-        label = self._inspections.sheet_label(sheet)
-        if not messagebox.askyesno(
-            "Suppression multiple",
-            f"Supprimer définitivement les {len(ids_to_delete)} lignes "
-            f"sélectionnées dans « {label} » ?\n\n"
-            "Cette action est irréversible.",
-        ):
-            return
-        ok, errors = 0, []
-        for rid in ids_to_delete:
-            try:
-                self._inspections.delete_row(sheet, rid)
-                ok += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("Échec suppression %s #%s", sheet, rid)
-                errors.append(f"#{rid}: {exc}")
-        # Purge la sélection.
-        self._insp_selection[sheet] = {}
-        self._refresh_module(sheet)
-        self._refresh_selection_counter(sheet)
-        msg = f"✅ {ok} ligne(s) supprimée(s) dans « {label} »."
-        if errors:
-            msg += f"\n\n⚠️ {len(errors)} erreur(s) :\n" + "\n".join(errors[:10])
-            messagebox.showwarning("Suppression partielle", msg)
+            btn.pack(side="right", padx=4)
+            self._selected_module_btn[sheet] = btn
+            self._selected_module.setdefault(sheet, set())
         else:
-            messagebox.showinfo("Suppression terminée", msg)
+            self._selected_module_btn[sheet] = None
+
+        # Zone de tableau scrollable dans les deux axes -------------------
+        outer = ctk.CTkFrame(parent, fg_color="transparent")
+        outer.grid(row=1, column=0, sticky="nsew")
+        outer.grid_rowconfigure(0, weight=1)
+        outer.grid_columnconfigure(0, weight=1)
+
+        canvas = Canvas(
+            outer,
+            # Canvas est un widget tk pur : il n'accepte pas les tuples
+            # light/dark de CTk, on choisit donc le mode courant.
+            bg=(CARD_BG[1] if ctk.get_appearance_mode() == "Dark" else CARD_BG[0]),
+            highlightthickness=0, borderwidth=0,
+        )
+        canvas.grid(row=0, column=0, sticky="nsew")
+
+        vbar = ctk.CTkScrollbar(outer, orientation="vertical", command=canvas.yview)
+        vbar.grid(row=0, column=1, sticky="ns")
+        hbar = ctk.CTkScrollbar(outer, orientation="horizontal", command=canvas.xview)
+        hbar.grid(row=1, column=0, sticky="ew")
+        canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+
+        inner = ctk.CTkFrame(canvas, fg_color="transparent")
+        inner_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_inner_config(_event: Any = None) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        inner.bind("<Configure>", _on_inner_config)
+
+        def _on_canvas_config(event: Any) -> None:
+            # On laisse l'inner s'étirer horizontalement seulement s'il est
+            # plus petit que le canvas — sinon on conserve sa largeur
+            # naturelle pour permettre le défilement horizontal.
+            req = inner.winfo_reqwidth()
+            width = max(event.width, req)
+            canvas.itemconfigure(inner_id, width=width)
+
+        canvas.bind("<Configure>", _on_canvas_config)
+
+        # Molette : verticale par défaut ; horizontale avec Shift ---------
+        def _on_mousewheel(event: Any, axis: str = "y") -> None:
+            delta = -1 if event.delta > 0 else 1
+            if hasattr(event, "num") and event.num in (4, 5):
+                delta = -1 if event.num == 4 else 1
+            if axis == "x":
+                canvas.xview_scroll(delta, "units")
+            else:
+                canvas.yview_scroll(delta, "units")
+
+        canvas.bind("<MouseWheel>", lambda e: _on_mousewheel(e, "y"))
+        canvas.bind("<Shift-MouseWheel>", lambda e: _on_mousewheel(e, "x"))
+        canvas.bind("<Button-4>", lambda e: _on_mousewheel(e, "y"))
+        canvas.bind("<Button-5>", lambda e: _on_mousewheel(e, "y"))
+
+        self._insp_tables[sheet] = inner
+        self._insp_canvases[sheet] = canvas
 
     def _export_module_pdf(self, sheet: str) -> None:
         """Exporte un module ASF au format PDF tableur (paysage)."""
@@ -2423,6 +1922,33 @@ class BovoApp(ctk.CTk):
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Export", f"Échec de l'export : {exc}")
 
+    # Largeurs de colonnes personnalisées (px). Les valeurs non listées
+    # utilisent la largeur par défaut ci-dessous. Améliore la lisibilité
+    # et donne une hiérarchie visuelle claire (ID compact, observations
+    # généreuses).
+    _COL_WIDTHS: dict[str, int] = {
+        "n_inspection": 100, "date": 100, "jour_nuit": 80,
+        "id_ouvrage": 95, "autoroute": 90, "secteur": 100,
+        "pk_depart": 90, "pk_arrivee": 90, "ml_inspectes": 110,
+        "nb_regards": 90, "heure_debut": 90, "heure_fin": 90,
+        "heures_totales": 100, "ml_h": 80,
+        "operateur": 130, "coequipier": 130, "meteo": 90,
+        "observations": 260, "description": 260,
+        "identifiant": 110, "prestataire": 130, "inspecteur": 130,
+        "type_ouvrage": 110, "sens": 90, "emplacement": 150,
+        "type_materiau": 120, "latitude": 100, "longitude": 100,
+        "lien_maps": 200, "requalif": 130, "etat_cunettes": 140,
+        "type_defaut": 110, "urgence": 90, "photo": 180, "statut": 110,
+        "heure_incident": 100, "gestionnaire": 130,
+        "type_materiel": 130, "reference": 130, "quantite": 90,
+        "unite": 80, "fournisseur": 150, "cout": 100,
+    }
+    _COL_WIDTH_DEFAULT = 130
+
+    def _col_width(self, col: str) -> int:
+        """Retourne la largeur d'affichage souhaitée pour une colonne module."""
+        return self._COL_WIDTHS.get(col, self._COL_WIDTH_DEFAULT)
+
     def _refresh_module(self, sheet: str) -> None:
         """Recharge la table d'un module ASF selon la recherche."""
         table = self._insp_tables[sheet]
@@ -2430,152 +1956,159 @@ class BovoApp(ctk.CTk):
             widget.destroy()
         columns = self._inspections.list_columns(sheet)
         rows = self._inspections.list_rows(sheet, self._insp_search[sheet].get().strip())
-
-        # Met à jour le compteur affiché dans la barre de KPIs.
-        stat_lbl = getattr(self, "_module_stat_labels", {}).get(sheet)
-        if stat_lbl is not None:
-            stat_lbl.configure(text=str(len(rows)))
+        visible_ids = {int(r["id"]) for r in rows}
+        # Nettoie la sélection des IDs qui ne sont plus visibles.
+        self._selected_module.setdefault(sheet, set())
+        self._selected_module[sheet] &= visible_ids
 
         head = ctk.CTkFrame(table, fg_color=CARD_BG, corner_radius=8)
         head.pack(fill="x", pady=(0, 4))
-        for _col, label in columns:
+        # Case « Tout sélectionner » (colonne 0), édition uniquement.
+        if self._can("edit"):
+            select_all_var = ctk.BooleanVar(
+                value=bool(visible_ids)
+                and self._selected_module[sheet] == visible_ids
+            )
+            setattr(self, f"_mod_select_all_{sheet}", select_all_var)
+            ctk.CTkCheckBox(
+                head, text="", width=28, variable=select_all_var,
+                command=lambda sh=sheet, v=select_all_var, ids=visible_ids:
+                    self._toggle_all_module_rows(sh, v.get(), ids),
+            ).pack(side="left", padx=(10, 4), pady=8)
+        for col, label in columns:
+            is_id = col == "id_ouvrage"
             ctk.CTkLabel(
-                head, text=label, width=150, anchor="w",
+                head, text=label, width=self._col_width(col), anchor="w",
                 font=ctk.CTkFont(size=12, weight="bold"),
+                text_color=ACCENT if is_id else None,
             ).pack(side="left", padx=6, pady=8)
         ctk.CTkLabel(head, text="", width=80).pack(side="left")
 
         if not rows:
-            empty = ctk.CTkFrame(table, fg_color=SURFACE, corner_radius=10)
-            empty.pack(fill="x", pady=20)
             ctk.CTkLabel(
-                empty, text="🗂️", font=ctk.CTkFont(size=32),
-            ).pack(pady=(16, 4))
-            ctk.CTkLabel(
-                empty,
-                text="Aucune donnée dans ce module.",
-                text_color="#9A9AA0", font=ctk.CTkFont(size=13, weight="bold"),
-            ).pack()
-            ctk.CTkLabel(
-                empty,
-                text="Cliquez sur « ➕ Ajouter » ou importez le classeur Excel ASF.",
-                text_color="#7A7A80", font=ctk.CTkFont(size=11),
-            ).pack(pady=(2, 16))
+                table, text="Aucune donnée. Cliquez « Ajouter » ou importez le classeur.",
+                text_color="#9A9AA0",
+            ).pack(anchor="w", pady=20)
+            self._update_module_delete_btn(sheet)
             return
 
         for row in rows:
             self._module_row(sheet, row, columns)
+        self._update_module_delete_btn(sheet)
 
     def _module_row(
         self, sheet: str, row: dict[str, str], columns: list[tuple[str, str]]
     ) -> None:
-        """Construit une ligne de table de module.
-
-        Depuis V1.2 chaque ligne dispose d'une **case à cocher** en début
-        de rangée pour permettre la suppression multiple (voir la barre
-        d'outils du module).
-        """
+        """Construit une ligne de table de module (éditable + suppression)."""
         container = ctk.CTkFrame(
-            self._insp_tables[sheet], fg_color=SURFACE, height=44, corner_radius=8,
-            border_width=0,
+            self._insp_tables[sheet], fg_color=SURFACE, height=40, corner_radius=8
         )
-        container.pack(fill="x", pady=3)
+        container.pack(fill="x", pady=2)
         row_id = int(row["id"])
-        can_edit = self._can("edit_inspections")
         handler = lambda _e=None, sh=sheet, rid=row_id: self._open_row_form(sh, rid)  # noqa: E731
-
-        # Case à cocher (multi-sélection pour suppression groupée).
-        if can_edit:
-            selection = self._insp_selection.setdefault(sheet, {})
-            var = selection.get(row_id)
-            if var is None:
-                var = ctk.BooleanVar(value=False)
-                selection[row_id] = var
+        # Case à cocher (sélection multiple).
+        if self._can("edit"):
+            selected = row_id in self._selected_module.get(sheet, set())
+            var = ctk.BooleanVar(value=selected)
             ctk.CTkCheckBox(
-                container, text="", variable=var, width=32,
-                checkbox_width=20, checkbox_height=20,
-                fg_color=ACCENT, hover_color=ACCENT_HOVER,
-                command=lambda sh=sheet: self._refresh_selection_counter(sh),
+                container, text="", width=28, variable=var,
+                command=lambda sh=sheet, rid=row_id, v=var:
+                    self._toggle_module_row(sh, rid, v.get()),
             ).pack(side="left", padx=(10, 4), pady=8)
-
-        if can_edit:
+        if self._can("edit"):
             container.bind("<Button-1>", handler)
-        # Couleurs par statut / urgence / etat_cunettes (badges lisibles).
-        _STATUS_COLORS = {
-            "Terminée": "#2A9D8F", "En cours": "#F4A261",
-            "Planifiée": "#457B9D", "À faire": "#8A8A90", "Annulée": "#E63946",
-            "Pas de défaut": "#2A9D8F", "Non évolutif": "#457B9D",
-            "Evolution normale": "#F4A261", "Défauts majeurs": "#E63946",
-            "Non visitable": "#8A8A90",
-            "Aucune": "#2A9D8F", "Moindre": "#457B9D",
-            "Moyenne": "#F4A261", "Elevée": "#E63946", "Très elevée": "#E63946",
-        }
         for col, _label in columns:
             value = row.get(col, "") or "—"
             if col == "date":
                 value = format_date_fr(parse_iso_date(row.get(col))) or value
-            # Badges colorés pour les colonnes de statut/urgence/état.
-            if col in ("statut", "urgence", "etat_cunettes") and value != "—":
-                color = _STATUS_COLORS.get(value, ACCENT)
-                badge = ctk.CTkLabel(
-                    container, text=f"  {value}  ", width=150,
-                    fg_color=color, text_color="white", corner_radius=6,
-                    font=ctk.CTkFont(size=11, weight="bold"),
-                )
-                badge.pack(side="left", padx=6, pady=8)
-                if can_edit:
-                    badge.bind("<Button-1>", handler)
-                continue
+            is_id = col == "id_ouvrage"
+            width = self._col_width(col)
+            max_chars = max(6, width // 10)
             label = ctk.CTkLabel(
-                container, text=str(value)[:28], width=150, anchor="w",
-                font=ctk.CTkFont(size=12),
+                container, text=str(value)[:max_chars],
+                width=width, anchor="w",
+                font=ctk.CTkFont(size=12, weight="bold" if is_id else "normal"),
+                text_color=ACCENT if is_id else None,
             )
             label.pack(side="left", padx=6, pady=8)
-            if can_edit:
+            if self._can("edit"):
                 label.bind("<Button-1>", handler)
-        if can_edit:
+        if self._can("edit"):
             ctk.CTkButton(
-                container, text="🗑", width=44, height=32,
-                fg_color="#3A0F14", text_color="#FF6B6B",
-                hover_color=ACCENT, border_width=1, border_color=ACCENT,
+                container, text="🗑", width=36, fg_color="transparent",
+                text_color=ACCENT, hover_color=CARD_BG,
                 command=lambda sh=sheet, rid=row_id: self._delete_module_row(sh, rid),
-            ).pack(side="right", padx=(4, 10))
+            ).pack(side="right", padx=6)
 
-    def _delete_module_row(self, sheet: str, row_id: int) -> None:
-        """Supprime une ligne de module après confirmation.
+    def _toggle_module_row(self, sheet: str, row_id: int, selected: bool) -> None:
+        """Ajoute/retire une ligne de la sélection multi d'un module."""
+        bucket = self._selected_module.setdefault(sheet, set())
+        if selected:
+            bucket.add(row_id)
+        else:
+            bucket.discard(row_id)
+        self._update_module_delete_btn(sheet)
 
-        Les erreurs API sont désormais **surfacées** dans une boîte de
-        dialogue au lieu d'être silencieuses — c'était la cause du
-        symptôme « je clique sur la corbeille et rien ne se passe ».
-        """
-        label = self._inspections.sheet_label(sheet)
+    def _toggle_all_module_rows(
+        self, sheet: str, selected: bool, visible_ids: set[int]
+    ) -> None:
+        """Sélectionne ou déselectionne toutes les lignes visibles d'un module."""
+        if selected:
+            self._selected_module[sheet] = set(visible_ids)
+        else:
+            self._selected_module[sheet] = set()
+        self._refresh_module(sheet)
+
+    def _update_module_delete_btn(self, sheet: str) -> None:
+        """Met à jour l'état/le libellé du bouton 'Supprimer sélection' du module."""
+        btn = self._selected_module_btn.get(sheet)
+        if btn is None:
+            return
+        n = len(self._selected_module.get(sheet, set()))
+        if n == 0:
+            btn.configure(state="disabled", text="🗑  Supprimer sélection")
+        else:
+            btn.configure(state="normal", text=f"🗑  Supprimer sélection ({n})")
+
+    def _delete_selected_module_rows(self, sheet: str) -> None:
+        """Supprime en masse les lignes cochées d'un module ASF."""
+        bucket = self._selected_module.get(sheet, set())
+        n = len(bucket)
+        if n == 0:
+            return
         if not messagebox.askyesno(
-            "Supprimer",
-            f"Supprimer définitivement cette entrée dans « {label} » ?\n\n"
-            "Cette action est irréversible.",
+            "Suppression multiple",
+            f"Supprimer les {n} entrée(s) sélectionnée(s) du module '{self._inspections.sheet_label(sheet)}' ? Cette action est irréversible.",
         ):
             return
-        try:
-            self._inspections.delete_row(sheet, row_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Échec suppression %s #%s", sheet, row_id)
-            messagebox.showerror(
-                "Suppression impossible",
-                f"Impossible de supprimer cette entrée :\n\n{exc}\n\n"
-                "Vérifiez votre connexion au serveur ou vos droits d'accès.",
-            )
-            return
-        self._refresh_module(sheet)
-        # Le journal d'import est spécifique à la vue Accueil ; on l'alimente
-        # seulement s'il existe (évite un AttributeError si l'utilisateur
-        # supprime depuis la vue Inspections).
-        if getattr(self, "_import_log", None) is not None:
+        failed: list[int] = []
+        for row_id in list(bucket):
             try:
-                self._append_import_log(
-                    f"🗑️  Entrée supprimée dans {label} (#{row_id})",
+                self._inspections.delete_row(sheet, row_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Suppression %s row %s a échoué : %s", sheet, row_id, exc,
                 )
-            except Exception:  # noqa: BLE001 - journal purement décoratif
-                pass
+                failed.append(row_id)
+        deleted = n - len(failed)
+        self._selected_module[sheet] = set()
+        self._refresh_module(sheet)
+        if failed:
+            messagebox.showwarning(
+                "Suppression multiple",
+                f"{deleted} supprimée(s), {len(failed)} échec(s). Voir logs.",
+            )
+        else:
+            messagebox.showinfo(
+                "Suppression multiple",
+                f"{deleted} entrée(s) supprimée(s).",
+            )
+
+    def _delete_module_row(self, sheet: str, row_id: int) -> None:
+        """Supprime une ligne de module après confirmation."""
+        if messagebox.askyesno("Suppression", "Supprimer cette entrée ?"):
+            self._inspections.delete_row(sheet, row_id)
+            self._refresh_module(sheet)
 
     def _open_row_form(self, sheet: str, row_id: int | None) -> None:
         """Ouvre le formulaire d'ajout/édition d'une ligne de module."""
@@ -2999,27 +2532,17 @@ class BovoApp(ctk.CTk):
     # ------------------------------------------------------------------ #
     def _view_parametres(self) -> None:
         """Affiche les paramètres modifiables de l'application."""
-        frame = ctk.CTkScrollableFrame(self._content, fg_color="transparent")
+        frame = ctk.CTkFrame(self._content, fg_color="transparent")
         frame.grid(row=0, column=0, sticky="nsew")
         ctk.CTkLabel(
             frame, text="Paramètres", font=ctk.CTkFont(size=24, weight="bold"),
-        ).pack(anchor="w", pady=(0, 6))
-        ctk.CTkLabel(
-            frame,
-            text="Personnalisez l'apparence, le stockage et la connexion au serveur BOVO.",
-            text_color="#9A9AA0", anchor="w",
-        ).pack(anchor="w", pady=(0, 18))
+        ).pack(anchor="w", pady=(0, 20))
 
-        # --------- Apparence --------- #
         card = ctk.CTkFrame(frame, fg_color=CARD_BG, corner_radius=14)
-        card.pack(fill="x", pady=(0, 14))
-        ctk.CTkLabel(
-            card, text="Apparence",
-            font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(anchor="w", padx=20, pady=(16, 6))
+        card.pack(fill="x")
 
         theme_row = ctk.CTkFrame(card, fg_color="transparent")
-        theme_row.pack(fill="x", padx=20, pady=(4, 12))
+        theme_row.pack(fill="x", padx=20, pady=16)
         ctk.CTkLabel(theme_row, text="Thème d'apparence", width=200, anchor="w").pack(
             side="left"
         )
@@ -3041,109 +2564,84 @@ class BovoApp(ctk.CTk):
             progress_color=ACCENT,
         ).pack(side="left")
 
-        # --------- Connexion serveur --------- #
-        server_card = ctk.CTkFrame(frame, fg_color=CARD_BG, corner_radius=14)
-        server_card.pack(fill="x", pady=(0, 14))
+        folders = ctk.CTkFrame(card, fg_color="transparent")
+        folders.pack(fill="x", padx=20, pady=(0, 16))
         ctk.CTkLabel(
-            server_card, text="Connexion au serveur",
-            font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(anchor="w", padx=20, pady=(16, 6))
-        current_url = self._settings.server_url or "Non configuré"
+            folders, text=f"Dossier PDF : {self._settings.pdf_folder}",
+            anchor="w", text_color="#9A9AA0",
+        ).pack(anchor="w")
         ctk.CTkLabel(
-            server_card,
-            text=f"🌐  URL actuelle : {current_url}",
-            anchor="w", text_color="#B7B8BE",
-        ).pack(anchor="w", padx=20, pady=(0, 4))
+            folders, text=f"Dossier export : {self._settings.export_folder}",
+            anchor="w", text_color="#9A9AA0",
+        ).pack(anchor="w")
         ctk.CTkLabel(
-            server_card,
-            text=("L'URL est stockée localement sur ce poste et n'est plus "
-                  "demandée au démarrage tant qu'elle reste valide."),
-            anchor="w", text_color="#7A7A80",
-            font=ctk.CTkFont(size=11), wraplength=640, justify="left",
-        ).pack(anchor="w", padx=20, pady=(0, 10))
-        ctk.CTkButton(
-            server_card, text="🔧  Reconfigurer le serveur",
-            fg_color="#457B9D", hover_color="#35617D", height=38,
-            command=self._reconfigure_server,
-        ).pack(anchor="w", padx=20, pady=(0, 16))
+            folders, text=f"Base de données : {self._db.path}",
+            anchor="w", text_color="#9A9AA0",
+        ).pack(anchor="w")
 
-        # --------- Emplacements --------- #
-        folders = ctk.CTkFrame(frame, fg_color=CARD_BG, corner_radius=14)
-        folders.pack(fill="x")
+        # --- Mises à jour automatiques -----------------------------------
+        update_row = ctk.CTkFrame(card, fg_color="transparent")
+        update_row.pack(fill="x", padx=20, pady=(4, 16))
         ctk.CTkLabel(
-            folders, text="Emplacements",
-            font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(anchor="w", padx=20, pady=(16, 6))
-
-        # Ligne dossier PDF (lecture seule).
-        ctk.CTkLabel(
-            folders, text=f"📁  Dossier PDF importés : {self._settings.pdf_folder}",
-            anchor="w", text_color="#B7B8BE",
-        ).pack(anchor="w", padx=20)
-
-        # Ligne dossier d'export (modifiable).
-        export_row = ctk.CTkFrame(folders, fg_color="transparent")
-        export_row.pack(anchor="w", padx=20, pady=(6, 6), fill="x")
-        self._export_folder_label = ctk.CTkLabel(
-            export_row,
-            text=f"📤  Dossier d'export : {self._settings.export_folder}",
-            anchor="w", text_color="#B7B8BE",
+            update_row, text="Source des mises à jour", width=200, anchor="w",
+        ).pack(side="left")
+        update_var = ctk.StringVar(value=self._settings.update_source)
+        entry = ctk.CTkEntry(
+            update_row, textvariable=update_var, width=380,
+            placeholder_text=r"\\SERVEUR\Partage\Bovo\latest.json",
         )
-        self._export_folder_label.pack(side="left", fill="x", expand=True)
-        ctk.CTkButton(
-            export_row, text="Modifier…", width=110, height=32,
-            fg_color=ACCENT, hover_color=ACCENT_HOVER,
-            command=self._change_export_folder,
-        ).pack(side="right", padx=(8, 0))
+        entry.pack(side="left", padx=(0, 8))
 
-        ctk.CTkLabel(
-            folders, text=f"🗄️  Base de données : {self._db.path}",
-            anchor="w", text_color="#B7B8BE",
-        ).pack(anchor="w", padx=20, pady=(4, 16))
-
-    def _change_export_folder(self) -> None:
-        """Ouvre un file-picker pour choisir un nouveau dossier d'export."""
-        current = str(self._settings.export_folder)
-        chosen = filedialog.askdirectory(
-            title="Choisir le dossier d'export par défaut",
-            initialdir=current if Path(current).exists() else str(Path.home()),
-            mustexist=True,
-        )
-        if not chosen:
-            return
-        # Persiste dans les settings (mirroré JSON + SQLite).
-        self._settings.set("export_folder", chosen)
-        # Rafraîchit l'affichage.
-        if hasattr(self, "_export_folder_label"):
-            self._export_folder_label.configure(
-                text=f"📤  Dossier d'export : {chosen}",
-            )
-        messagebox.showinfo(
-            "Dossier d'export mis à jour",
-            f"Les futurs exports (Excel, PDF, CSV, JSON, fiches planning) "
-            f"utiliseront ce dossier par défaut :\n\n{chosen}",
-        )
-
-    def _reconfigure_server(self) -> None:
-        """Ouvre le dialogue de configuration du serveur (depuis Paramètres)."""
-        from app.server_config_dialog import ServerConfigDialog
-
-        def _after_save() -> None:
-            new_url = self._settings.server_url
-            if self._client is not None and new_url:
-                self._client._base_url = new_url.rstrip("/")  # noqa: SLF001
+        def _save_update() -> None:
+            self._settings.update_source = update_var.get()
             messagebox.showinfo(
-                "Serveur mis à jour",
-                f"L'URL du serveur a été enregistrée :\n{new_url}\n\n"
-                "Elle sera utilisée dès la prochaine connexion.",
+                "Mises à jour",
+                "Source enregistrée. La vérification s'effectuera au prochain démarrage.",
             )
-            self._show_view("parametres")
 
-        ServerConfigDialog(
-            self, self._settings,
-            on_success=_after_save,
-            on_cancel=lambda: None,
-        )
+        ctk.CTkButton(
+            update_row, text="Enregistrer", width=110,
+            fg_color=ACCENT, hover_color=ACCENT_HOVER,
+            command=_save_update,
+        ).pack(side="left")
+
+        def _check_now() -> None:
+            from app.updater import check_for_update
+            src = self._settings.update_source
+            if not src:
+                messagebox.showwarning(
+                    "Mises à jour", "Renseigne d'abord la source des mises à jour.",
+                )
+                return
+            info = check_for_update(src)
+            if info is None:
+                messagebox.showinfo(
+                    "Mises à jour",
+                    f"L'application est à jour (version {self._current_version()}).",
+                )
+            else:
+                self._show_update_banner(info)
+
+        ctk.CTkButton(
+            update_row, text="Vérifier", width=90,
+            fg_color="transparent", hover_color=CARD_BG,
+            command=_check_now,
+        ).pack(side="left", padx=(6, 0))
+
+        # --- À propos ----------------------------------------------------
+        about = ctk.CTkFrame(card, fg_color="transparent")
+        about.pack(fill="x", padx=20, pady=(0, 20))
+        ctk.CTkLabel(
+            about,
+            text=f"Version installée : {self._current_version()}",
+            anchor="w", text_color="#9A9AA0",
+        ).pack(anchor="w")
+
+    @staticmethod
+    def _current_version() -> str:
+        """Retourne la version canonique de l'application."""
+        from app.version import __version__
+        return __version__
 
     def _change_theme(self, theme: str) -> None:
         """Applique et persiste un nouveau thème."""

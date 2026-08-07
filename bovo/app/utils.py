@@ -21,83 +21,54 @@ from app.logger import get_logger
 
 logger = get_logger("utils")
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATABASE_DIR = PROJECT_ROOT / "database"
-LOGS_DIR = PROJECT_ROOT / "logs"
-EXPORT_DIR = PROJECT_ROOT / "exports"
 
+def _is_frozen() -> bool:
+    """Retourne True si l'app tourne depuis un exécutable PyInstaller.
 
-def _executable_dir() -> Path:
-    """Retourne le dossier de l'exécutable / du script principal.
-
-    Sous PyInstaller (mode ``--onefile``), ``sys.executable`` pointe vers le
-    binaire déballé côté utilisateur. En mode développement, on retourne la
-    racine du projet.
+    Détection standard : ``sys.frozen`` est positionné par PyInstaller (et
+    la plupart des packagers Python — cx_Freeze, Nuitka…).
     """
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
-    return PROJECT_ROOT
+    return bool(getattr(sys, "frozen", False))
 
 
-def _bundle_dir() -> Path:
-    """Retourne le dossier des ressources embarquées par PyInstaller.
+def _user_data_root() -> Path:
+    """Racine des données utilisateur (persistantes, écrite au run-time).
 
-    En mode ``--onefile``, PyInstaller extrait les données dans un dossier
-    temporaire exposé via ``sys._MEIPASS``. En mode ``--onedir``, il s'agit
-    du dossier ``_internal`` à côté du binaire.
+    * Mode « frozen » (Bovo.exe distribué sur un partage réseau ou installé) :
+      on utilise ``%APPDATA%\\Bovo`` (Windows) ou ``~/.local/share/Bovo``
+      (Linux/macOS) pour que les paramètres, journal, DB locale et exports
+      soient persistés PAR UTILISATEUR — indépendamment de l'emplacement
+      de l'exe. Sans ça, un exe partagé écrirait ses données dans
+      ``%TEMP%\\_MEI...`` qui est effacé à chaque redémarrage.
+    * Mode dev (``python main.py``) : dossier du projet, comme avant.
+    """
+    if _is_frozen():
+        if platform.system() == "Windows":
+            base = Path(os.environ.get("APPDATA", "")) if os.environ.get("APPDATA") else Path.home() / "AppData" / "Roaming"
+            return base / "Bovo"
+        # Linux/macOS (peu probable pour cette app mais robuste).
+        return Path.home() / ".local" / "share" / "Bovo"
+    return Path(__file__).resolve().parent.parent
+
+
+def _bundle_root() -> Path:
+    """Racine des ressources bundlées (assets read-only : logo, icônes).
+
+    En mode frozen, PyInstaller expose ``sys._MEIPASS`` (chemin d'extraction
+    temporaire). En mode dev, on retombe sur la racine du projet.
     """
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         return Path(meipass)
-    return PROJECT_ROOT
+    return Path(__file__).resolve().parent.parent
 
 
-def resource_path(*parts: str | Path) -> Path:
-    """Retourne le chemin absolu d'une ressource (asset) — override friendly.
-
-    Recherche dans l'ordre :
-
-    1. **Dossier utilisateur** : ``<exe>/assets/<parts>`` — priorité maximale
-       pour permettre à l'utilisateur de remplacer ``logo.png`` ou
-       ``app.ico`` **sans recompiler** (il suffit de déposer le nouveau
-       fichier à côté de l'exécutable).
-    2. **Bundle PyInstaller** : ``<_MEIPASS>/assets/<parts>`` — la valeur
-       par défaut embarquée dans l'exe.
-    3. **Racine projet** : ``<project>/assets/<parts>`` — pour le mode dev.
-
-    Le premier chemin existant est retourné. Si aucun n'existe, le premier
-    chemin (utilisateur) est renvoyé quand même — le code appelant décidera
-    du fallback (par ex. logo textuel).
-    """
-    candidates = [
-        _executable_dir() / "assets" / Path(*parts),
-        _bundle_dir() / "assets" / Path(*parts),
-        PROJECT_ROOT / "assets" / Path(*parts),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
-# ------------------------------------------------------------------ #
-# Emplacements historiquement exposés — préservés pour compatibilité.
-# ------------------------------------------------------------------ #
-
-#: Dossier des ressources visuelles (icônes, logo, icône Windows).
-#:
-#: En mode installé (exe PyInstaller), pointe vers le dossier ``assets``
-#: à côté du binaire — l'utilisateur peut y déposer sa propre version de
-#: ``logo.png`` et ``app.ico`` sans recompiler. En mode développement,
-#: pointe vers ``<projet>/assets``.
-ASSETS_DIR = _executable_dir() / "assets"
-if not ASSETS_DIR.exists():
-    # Fallback : ressources embarquées par PyInstaller (--onefile).
-    _bundled = _bundle_dir() / "assets"
-    if _bundled.exists():
-        ASSETS_DIR = _bundled
-    else:
-        ASSETS_DIR = PROJECT_ROOT / "assets"
+PROJECT_ROOT = _bundle_root()               # assets read-only (logo, icônes)
+_USER_ROOT = _user_data_root()              # writable per-user
+DATABASE_DIR = _USER_ROOT / "database"      # SQLite local (settings, journal)
+ASSETS_DIR = PROJECT_ROOT / "assets"        # bundle
+LOGS_DIR = _USER_ROOT / "logs"              # journal fichier
+EXPORT_DIR = _USER_ROOT / "exports"         # PDF/Excel générés
 
 
 def get_system_username() -> str:

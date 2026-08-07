@@ -71,24 +71,6 @@ def main() -> int:
 
     app = BovoApp(database, settings, auth=auth, audit=audit, client=client)
     app.protocol("WM_DELETE_WINDOW", lambda: _shutdown(app, sse_listener, database))
-    # Icône de la fenêtre principale (barre des tâches Windows / dock macOS).
-    # ``app.ico`` peut être remplacé par l'utilisateur sans recompiler :
-    # il suffit de déposer un nouveau fichier ``assets/app.ico`` à côté
-    # de l'exécutable (voir docstring de :func:`app.utils.resource_path`).
-    try:
-        from app.utils import resource_path
-        ico_path = resource_path("app.ico")
-        if ico_path.exists():
-            if sys.platform.startswith("win"):
-                app.iconbitmap(str(ico_path))
-            else:
-                # macOS/Linux : utilise iconphoto avec un PhotoImage PNG.
-                png_path = resource_path("logo.png")
-                if png_path.exists():
-                    import tkinter as tk
-                    app.iconphoto(True, tk.PhotoImage(file=str(png_path)))
-    except Exception as exc:  # noqa: BLE001 - l'icône n'est pas critique
-        logger.warning("Impossible de charger l'icône : %s", exc)
 
     def _after_login() -> None:
         """Callback exécuté quand la connexion est validée."""

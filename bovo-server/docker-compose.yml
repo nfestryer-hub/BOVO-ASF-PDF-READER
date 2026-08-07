@@ -36,10 +36,8 @@ services:
     volumes:
       - documents:/data/documents
 
-  # Sauvegarde automatique quotidienne de PostgreSQL (24h de cycle).
+  # Sauvegarde automatique quotidienne de PostgreSQL (07:00 UTC).
   # Conserve les 14 dernières archives compressées.
-  # Le script est monté depuis ./scripts/backup.sh pour éviter les
-  # problèmes de parsing shell/YAML sur Windows (CRLF, pipes, quotes).
   backup:
     image: postgres:16-alpine
     container_name: bovo-backup
@@ -49,16 +47,18 @@ services:
         condition: service_healthy
     environment:
       PGPASSWORD: "${POSTGRES_PASSWORD}"
-      POSTGRES_USER: "${POSTGRES_USER:-bovo}"
-      POSTGRES_DB: "${POSTGRES_DB:-bovo}"
-      DB_HOST: "db"
-      BACKUP_DIR: "/backups"
-      KEEP_COUNT: "${BACKUP_KEEP_COUNT:-14}"
-      SLEEP_SECONDS: "${BACKUP_INTERVAL_SECONDS:-86400}"
     volumes:
       - backups:/backups
-      - ./scripts/backup.sh:/usr/local/bin/backup.sh:ro
-    entrypoint: ["/bin/sh", "/usr/local/bin/backup.sh"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      "while true; do
+        DAY=$$(date +%F);
+        pg_dump -h db -U ${POSTGRES_USER:-bovo} ${POSTGRES_DB:-bovo}
+          | gzip -9 > /backups/bovo-$$DAY.sql.gz;
+        ls -1t /backups/bovo-*.sql.gz | tail -n +15 | xargs -r rm --;
+        echo \"[backup] $$DAY OK\";
+        sleep 86400;
+      done"
 
 volumes:
   db-data:

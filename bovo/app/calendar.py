@@ -19,7 +19,6 @@ from app.models import Intervention, StatutIntervention
 # Couleurs (hex) associées à chaque statut, réutilisées par le GUI.
 STATUT_COLORS: dict[StatutIntervention, str] = {
     StatutIntervention.A_FAIRE: "#E63946",
-    StatutIntervention.A_PLANIFIER: "#9AA0A6",  # gris — brouillon d'import PDF
     StatutIntervention.PLANIFIEE: "#F4A261",
     StatutIntervention.EN_COURS: "#2A9D8F",
     StatutIntervention.TERMINEE: "#43AA8B",
@@ -55,7 +54,6 @@ class DayCell:
             StatutIntervention.EN_COURS,
             StatutIntervention.A_FAIRE,
             StatutIntervention.PLANIFIEE,
-            StatutIntervention.A_PLANIFIER,
             StatutIntervention.TERMINEE,
             StatutIntervention.ANNULEE,
         ]
@@ -109,7 +107,13 @@ class CalendarModel:
     def _index_by_day(
         interventions: list[Intervention],
     ) -> dict[date, list[Intervention]]:
-        """Indexe les interventions par chaque journée couverte."""
+        """Indexe les interventions par chaque journée couverte.
+
+        ⚠️ V1.2 : les **week-ends** (samedi = weekday 5, dimanche = 6) sont
+        **exclus** — les chantiers ASF ne roulent pas le week-end. Ainsi,
+        un ouvrage planifié du lundi 04/09 au mardi 30/09 apparaît sur les
+        20 jours ouvrés et pas sur les 27 jours calendaires du mois.
+        """
         index: dict[date, list[Intervention]] = {}
         for iv in interventions:
             start = iv.date_debut
@@ -120,7 +124,9 @@ class CalendarModel:
                 start, end = end, start
             current = start
             while current <= end:
-                index.setdefault(current, []).append(iv)
+                # Exclut samedi (5) et dimanche (6).
+                if current.weekday() < 5:
+                    index.setdefault(current, []).append(iv)
                 current = current.fromordinal(current.toordinal() + 1)
         return index
 

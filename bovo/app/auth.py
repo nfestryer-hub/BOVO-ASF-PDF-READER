@@ -36,26 +36,9 @@ _BCRYPT_COST = 12
 
 
 class Role(str, Enum):
-    """Rôles de sécurité du logiciel.
-
-    ============================  ======================================
-    Rôle                          Droits
-    ============================  ======================================
-    ADMIN                         Accès total, y compris utilisateurs
-                                  et historique.
-    INSPECTEUR_ITV                Comme Admin, MAIS pas de journal /
-                                  historique / gestion des utilisateurs.
-    PLANIFICATEUR                 Accueil + Import PDF + Calendrier +
-                                  Interventions (tous droits).
-                                  Inspections ASF en LECTURE SEULE.
-                                  Pas de journal / historique / users.
-    CONSULTANT                    Lecture seule + pas d'accès au
-                                  planning (Calendrier + Interventions).
-    ============================  ======================================
-    """
+    """Rôles de sécurité du logiciel."""
 
     ADMIN = "Admin"
-    INSPECTEUR_ITV = "Inspecteur ITV"
     PLANIFICATEUR = "Planificateur"
     CONSULTANT = "Consultant"
 
@@ -143,42 +126,20 @@ class Session:
         return self.user.role if self.user else None
 
     def can_edit(self) -> bool:
-        """Vrai pour Admin, Inspecteur ITV et Planificateur (édition interventions / calendrier)."""
-        return self.role in (
-            Role.ADMIN, Role.INSPECTEUR_ITV, Role.PLANIFICATEUR,
-        )
-
-    def can_edit_inspections(self) -> bool:
-        """Édition des Inspections ASF (modules éditables).
-
-        Le Planificateur a un accès en LECTURE SEULE ici — il peut
-        consulter mais pas modifier ni supprimer les rapports, incidents,
-        matériel. Admin et Inspecteur ITV ont tous les droits.
-        """
-        return self.role in (Role.ADMIN, Role.INSPECTEUR_ITV)
+        """Vrai pour Admin et Planificateur, faux pour Consultant."""
+        return self.role in (Role.ADMIN, Role.PLANIFICATEUR)
 
     def can_view_planning(self) -> bool:
         """Le Consultant n'a pas accès au planning (Calendrier + Interventions)."""
-        return self.role in (
-            Role.ADMIN, Role.INSPECTEUR_ITV, Role.PLANIFICATEUR,
-        )
-
-    def can_import_pdf(self) -> bool:
-        """Import PDF : Admin, Inspecteur ITV et Planificateur uniquement."""
-        return self.role in (
-            Role.ADMIN, Role.INSPECTEUR_ITV, Role.PLANIFICATEUR,
-        )
+        return self.role in (Role.ADMIN, Role.PLANIFICATEUR)
 
     def can_manage_users(self) -> bool:
         """Seul l'Admin peut gérer les utilisateurs."""
         return self.role is Role.ADMIN
 
     def can_view_audit(self) -> bool:
-        """Seul l'Admin peut consulter l'historique / le journal.
-
-        Inspecteur ITV et Planificateur n'y ont plus accès (rétention V1.2).
-        """
-        return self.role is Role.ADMIN
+        """Admin et Planificateur peuvent consulter l'historique."""
+        return self.role in (Role.ADMIN, Role.PLANIFICATEUR)
 
 
 class AuthService:

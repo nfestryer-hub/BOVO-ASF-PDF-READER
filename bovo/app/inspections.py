@@ -44,7 +44,8 @@ class FieldSpec:
 # Colonnes des tables, dans l'ordre exact des colonnes du classeur Excel.
 ORDERED_COLUMNS: dict[str, list[str]] = {
     "inspections": [
-        "n_inspection", "date", "jour_nuit", "autoroute", "secteur",
+        "n_inspection", "date", "jour_nuit", "id_ouvrage",
+        "autoroute", "secteur",
         "pk_depart", "pk_arrivee", "ml_inspectes", "nb_regards",
         "heure_debut", "heure_fin", "heures_totales", "ml_h",
         "operateur", "coequipier", "meteo", "observations",
@@ -54,7 +55,7 @@ ORDERED_COLUMNS: dict[str, list[str]] = {
         "autoroute", "type_ouvrage", "secteur", "sens", "emplacement",
         "type_materiau", "latitude", "longitude", "lien_maps", "requalif",
         "etat_cunettes", "type_defaut", "urgence", "description", "photo",
-        "statut", "commentaire",
+        "statut",
     ],
     "incidents": [
         "date", "autoroute", "pk", "type_incident", "description",
@@ -86,6 +87,7 @@ FORM_FIELDS: dict[str, list[FieldSpec]] = {
         FieldSpec("n_inspection", "N° Inspection", "text"),
         FieldSpec("date", "Date", "date"),
         FieldSpec("jour_nuit", "Jour/Nuit", "choice", "choix_jour"),
+        FieldSpec("id_ouvrage", "ID Ouvrage", "text"),
         FieldSpec("autoroute", "Autoroute", "choice", "autoroutes"),
         FieldSpec("secteur", "Secteur", "choice", "secteur"),
         FieldSpec("pk_depart", "PK Départ", "text"),
@@ -101,28 +103,27 @@ FORM_FIELDS: dict[str, list[FieldSpec]] = {
         FieldSpec("observations", "Observations", "long"),
     ],
     "rapports": [
-        FieldSpec("date", "Date de visite", "date"),
-        FieldSpec("identifiant", "Identifiant", "text"),
+        FieldSpec("date", "Date", "date"),
+        FieldSpec("identifiant", "Identifiant (Ouvrage)", "text"),
         FieldSpec("n_inspection", "N° Inspection", "text"),
         FieldSpec("prestataire", "Prestataire", "text"),
         FieldSpec("inspecteur", "Inspecteur", "choice", "operateurs_itv"),
         FieldSpec("autoroute", "Autoroute", "choice", "autoroutes"),
-        FieldSpec("type_ouvrage", "Type d'ouvrage", "choice", "type"),
+        FieldSpec("type_ouvrage", "Type", "choice", "type"),
         FieldSpec("secteur", "Secteur", "choice", "secteur"),
         FieldSpec("sens", "Sens", "text"),
-        FieldSpec("emplacement", "Emplacement", "choice", "emplacement"),
+        FieldSpec("emplacement", "Emplacement", "text"),
         FieldSpec("type_materiau", "Type de matériau", "choice", "type_materiau"),
         FieldSpec("latitude", "Latitude", "text"),
         FieldSpec("longitude", "Longitude", "text"),
         FieldSpec("lien_maps", "Lien Maps", "text"),
         FieldSpec("requalif", "Si objet à requalifier", "choice", "requalif"),
-        FieldSpec("etat_cunettes", "État général de l'ouvrage", "choice", "etat_cunettes"),
+        FieldSpec("etat_cunettes", "État général des cunettes", "choice", "etat_cunettes"),
         FieldSpec("type_defaut", "Type de défaut", "text"),
         FieldSpec("urgence", "Urgence", "choice", "urgence"),
-        FieldSpec("description", "Commentaires", "long"),
-        FieldSpec("photo", "Photo(s)", "text"),
+        FieldSpec("description", "Description", "long"),
+        FieldSpec("photo", "Photo", "text"),
         FieldSpec("statut", "Statut", "text"),
-        FieldSpec("commentaire", "Commentaire", "long"),
     ],
     "incidents": [
         FieldSpec("date", "Date", "date"),
@@ -149,144 +150,10 @@ FORM_FIELDS: dict[str, list[FieldSpec]] = {
 # Colonnes affichées dans les tableaux récapitulatifs de chaque module.
 LIST_COLUMNS: dict[str, list[str]] = {
     "inspections": ["n_inspection", "date", "autoroute", "secteur", "ml_inspectes", "operateur"],
-    "rapports": ["date", "identifiant", "type_ouvrage", "autoroute", "secteur", "etat_cunettes", "urgence"],
+    "rapports": ["date", "identifiant", "autoroute", "type_ouvrage", "secteur", "urgence"],
     "incidents": ["date", "autoroute", "pk", "type_incident", "impact"],
     "materiel": ["date", "camera", "vehicule", "panne", "entretien"],
 }
-
-# Découpage du formulaire "Rapport d'inspection" en 4 sections ASF
-# (basé sur le classeur ASF "Form visites assain V2026-06-01.xlsx").
-#
-# ⚠️ Le classeur contient 5 onglets — un par type d'ouvrage — avec des
-# structures LÉGÈREMENT différentes (nombre de champs par section) :
-#
-#   • Caniveau / Fossé : Caractéristiques a 3 champs (Type mat + Emplacement
-#     + Si obj à requalifier) ; Surveillance a 3 champs (État + Comm + Photo).
-#   • Cunette : Caractéristiques a 2 champs (Type mat + Emplacement) ;
-#     Surveillance a 4 champs (Si obj + État + Comm + Photo).
-#   • Collecteur enterré / Descente d'eau : Caractéristiques n'a que 1 champ
-#     (Si obj à requalifier — PAS de Type mat ni Emplacement) ; Surveillance
-#     a 3 champs (État + Comm + Photo).
-#
-# On stocke pour chaque type sa liste de 4 sections. Section 4 "Autres
-# documents rattachés à la visite" est utilisée pour les champs étendus
-# (Lien Maps, coordonnées, Type de défaut, Urgence, Statut) qui ne
-# figurent pas dans le classeur ASF mais que Bovo souhaite conserver.
-
-_SEC_INFOS_GENERALES: list[tuple[str, str]] = [
-    ("identifiant", "Identifiant"),
-    ("date", "Date de visite"),
-    ("prestataire", "Prestataire"),
-    ("inspecteur", "Inspecteur"),
-    ("commentaire", "Commentaire"),
-    ("n_inspection", "N° Inspection"),
-    ("autoroute", "Autoroute"),
-    ("secteur", "Secteur"),
-    ("sens", "Sens"),
-]
-
-_SEC_AUTRES_DOCUMENTS: list[tuple[str, str]] = [
-    ("lien_maps", "Lien Maps"),
-    ("latitude", "Latitude"),
-    ("longitude", "Longitude"),
-    ("type_defaut", "Type de défaut"),
-    ("urgence", "Urgence"),
-    ("statut", "Statut"),
-]
-
-#: Liste des 5 types d'ouvrage ASF (onglets du classeur).
-ASF_OUVRAGE_TYPES: tuple[str, ...] = (
-    "Caniveau", "Cunette", "Fossé", "Collecteur enterré", "Descente d'eau",
-)
-
-#: Mise en page complète (4 sections) par type d'ouvrage ASF.
-#: Structure : ``{ouvrage: [(titre_section, [(col_db, libellé), ...]), ...]}``
-ASF_OUVRAGE_LAYOUTS: dict[str, list[tuple[str, list[tuple[str, str]]]]] = {
-    "Caniveau": [
-        ("Informations Générales", _SEC_INFOS_GENERALES),
-        ("Caractéristiques du caniveau", [
-            ("type_materiau", "Type de matériau"),
-            ("emplacement", "Emplacement"),
-            ("requalif", "Si objet à requalifier"),
-        ]),
-        ("Surveillance générale", [
-            ("etat_cunettes", "État général du caniveau ?"),
-            ("description", "Commentaires"),
-            ("photo", "Photo(s)"),
-        ]),
-        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
-    ],
-    "Cunette": [
-        ("Informations Générales", _SEC_INFOS_GENERALES),
-        ("Caractéristiques de la cunette", [
-            ("type_materiau", "Type de matériau"),
-            ("emplacement", "Emplacement"),
-        ]),
-        ("Surveillance générale", [
-            ("requalif", "Si objet à requalifier"),
-            ("etat_cunettes", "État général de la cunette ?"),
-            ("description", "Commentaires"),
-            ("photo", "Photo(s)"),
-        ]),
-        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
-    ],
-    "Fossé": [
-        ("Informations Générales", _SEC_INFOS_GENERALES),
-        ("Caractéristiques du fossé", [
-            ("type_materiau", "Type de matériau"),
-            ("emplacement", "Emplacement"),
-            ("requalif", "Si objet à requalifier"),
-        ]),
-        ("Surveillance générale", [
-            ("etat_cunettes", "État général du fossé ?"),
-            ("description", "Commentaires"),
-            ("photo", "Photo(s)"),
-        ]),
-        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
-    ],
-    "Collecteur enterré": [
-        ("Informations Générales", _SEC_INFOS_GENERALES),
-        ("Caractéristiques du collecteur", [
-            ("requalif", "Si objet à requalifier"),
-        ]),
-        ("Surveillance générale", [
-            ("etat_cunettes", "État général du collecteur ?"),
-            ("description", "Commentaires"),
-            ("photo", "Photo(s)"),
-        ]),
-        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
-    ],
-    "Descente d'eau": [
-        ("Informations Générales", _SEC_INFOS_GENERALES),
-        ("Caractéristiques de la descente d'eau", [
-            ("requalif", "Si objet à requalifier"),
-        ]),
-        ("Surveillance générale", [
-            ("etat_cunettes", "État général de la descente d'eau ?"),
-            ("description", "Commentaires"),
-            ("photo", "Photo(s)"),
-        ]),
-        ("Autres documents rattachés à la visite", _SEC_AUTRES_DOCUMENTS),
-    ],
-}
-
-
-def asf_layout_for(type_ouvrage: str) -> list[tuple[str, list[tuple[str, str]]]]:
-    """Retourne la mise en page ASF adaptée au type d'ouvrage sélectionné.
-
-    Retombe sur le layout **Caniveau** (le plus complet) si le type d'ouvrage
-    n'est pas reconnu — ce qui permet de gérer les codes legacy (CA, OH, DE)
-    ainsi que les rapports historiques sans type_ouvrage renseigné.
-    """
-    if type_ouvrage in ASF_OUVRAGE_LAYOUTS:
-        return ASF_OUVRAGE_LAYOUTS[type_ouvrage]
-    return ASF_OUVRAGE_LAYOUTS["Caniveau"]
-
-
-# Rétro-compatibilité : ancien nom, alias vers le layout Caniveau par défaut.
-ASF_RAPPORT_SECTIONS: list[tuple[str, list[tuple[str, str]]]] = (
-    ASF_OUVRAGE_LAYOUTS["Caniveau"]
-)
 
 # Listes de référence par défaut (utilisées tant que le classeur n'est pas importé).
 DEFAULT_REFERENTIEL: dict[str, list[str]] = {
@@ -299,35 +166,18 @@ DEFAULT_REFERENTIEL: dict[str, list[str]] = {
     "choix_jour": ["Jour", "Nuit"],
     "secteur": ["Midi Toulousain", "Garonne", "Agen", "Quercy"],
     "autoroutes": ["A61", "A66", "A68", "A62", "A20", "A64"],
-    # Types d'ouvrage ASF (formulaire visites assainissement V2026-06-01).
-    "type": [
-        "Caniveau", "Collecteur enterré", "Cunette", "Fossé",
-        "Descente d'eau", "CA", "OH", "DE",
-    ],
-    "type_materiau": [
-        "Enherbé", "Métallique", "Mixte", "Béton",
-        "Cunette revêtue - béton", "Cunette revêtue - autre matériau",
-        "Cunette non revêtue",
-        "Fossé revêtu – béton", "Fossé revêtu – autre matériau",
-        "Fossé non revêtu",
-        "Descente d'eau enterrée", "Descente d'eau superficielle",
-        "Caniveau à fente", "Caniveau à grille",
-        "Caniveau ouvert", "Caniveau recouvert",
-        "Collecteur enterré",
-        "Autre",
-    ],
-    "emplacement": [
-        "Haut de talus", "Bande dérasée", "Derrière GBA",
-        "Derrière glissière", "Bas de talus", "Autre",
-    ],
+    "type": ["CA", "OH", "DE"],
+    "type_materiau": ["Enherbé", "Métallique", "Mixte", "Béton", "Autre"],
     "urgence": ["Aucune", "Moindre", "Moyenne", "Elevée", "Très elevée"],
     "requalif": [
-        "Non", "Caniveau à requalifier", "Cunette à requalifier",
-        "Fossé à requalifier", "Descente d'eau à requalifier",
-        "Collecteur enterré à requalifier",
+        "Non", "Cunette revêtue - Béton", "Cunette revêtue - autre matériau",
+        "Cunette non revêtue", "Fossé revêtu - Béton",
+        "Fossé revêtu - Autre matériau", "Fossé non revêtu",
+        "Descente d'eau enterrée", "Descente d'eau superficielle",
+        "Collecteur enterré", "Caniveau ouvert", "Caniveau à fente",
     ],
     "etat_cunettes": [
-        "Pas de défaut", "Non évolutif", "Evolution normale",
+        "Pas de défauts", "Non évolutif", "Evolution normale",
         "Défauts majeurs", "Non visitable",
     ],
     "camera": ["IBAK Orpheus 2", "IBAK Nano", "IBAK Nano L", "IBAK Orion 3"],
@@ -366,6 +216,28 @@ def _to_float(value: str) -> float:
         return float(str(value).replace(",", "."))
     except (TypeError, ValueError):
         return 0.0
+
+
+def _norm_label(s: str) -> str:
+    """Normalise un libellé de colonne pour comparaison souple.
+
+    Enlève accents, espaces multiples, ponctuation et casse pour matcher
+    ``État général des cunettes`` avec ``Etat général des cunettes ``.
+    """
+    import unicodedata
+    n = unicodedata.normalize("NFD", s or "")
+    n = "".join(c for c in n if unicodedata.category(c) != "Mn")
+    n = "".join(c for c in n.lower() if c.isalnum() or c.isspace())
+    return " ".join(n.split())
+
+
+# Alias : quelques libellés Excel connus qui divergent des FieldSpec labels.
+_EXCEL_LABEL_ALIASES: dict[str, dict[str, str]] = {
+    "inspections": {"id": "id_ouvrage"},
+    "rapports": {},
+    "incidents": {},
+    "materiel": {},
+}
 
 
 class InspectionService:
@@ -584,28 +456,24 @@ class InspectionService:
     # Export PDF (mode tableur) d'un module ASF
     # ------------------------------------------------------------------ #
     def export_pdf(self, sheet: str, destination: Path) -> Path:
-        """Exporte toutes les lignes d'un module ASF dans un PDF.
+        """Exporte toutes les lignes d'un module ASF dans un PDF tableur.
 
-        Pour ``sheet == "rapports"``, utilise la mise en page ASF officielle
-        (4 sections colorées : Informations Générales / Caractéristiques /
-        Surveillance / Autres documents), conforme au classeur
-        ``Form visites assain V2026-06-01.xlsx``.
+        Args:
+            sheet: Clé de module (``inspections``, ``rapports`` …).
+            destination: Chemin du PDF cible.
 
-        Pour les autres modules, utilise le mode tableur générique.
+        Returns:
+            Le chemin du PDF généré.
         """
         from app.exporter import Exporter  # import local pour éviter le cycle
         exporter = Exporter(self._db)
-        rows_data = self._db.list_generic(sheet)
-        if sheet == "rapports":
-            return exporter.asf_rapports_to_pdf(
-                None, rows_data, destination,
-                layouts_by_ouvrage=ASF_OUVRAGE_LAYOUTS,
-                ouvrage_order=list(ASF_OUVRAGE_TYPES),
-            )
         columns = ORDERED_COLUMNS[sheet]
         labels = {f.column: f.label for f in FORM_FIELDS[sheet]}
         headers = [labels.get(c, c) for c in columns]
-        rows = [[(row.get(c, "") or "") for c in columns] for row in rows_data]
+        rows = [
+            [(row.get(c, "") or "") for c in columns]
+            for row in self._db.list_generic(sheet)
+        ]
         title = f"Bovo ASF Manager — {SHEET_LABELS[sheet]}"
         return exporter.table_to_pdf(title, headers, rows, destination)
 
@@ -648,23 +516,57 @@ class InspectionService:
         return summary
 
     def _import_sheet(self, worksheet: Any, sheet: str) -> int:
-        """Importe une feuille Excel dans la table correspondante."""
+        """Importe une feuille Excel dans la table correspondante.
+
+        L'import est **header-based** (mapping par libellé de colonne) avec
+        normalisation souple (accents, espaces, casse) pour rester robuste
+        aux évolutions du classeur (ajout de colonnes, retitrage, etc.).
+
+        Si un libellé Excel ne matche aucun ``FieldSpec.label``, on essaie
+        les alias déclarés dans :data:`_EXCEL_LABEL_ALIASES`. Les colonnes
+        dupliquées (ex. « Type » présent 2× dans Rapports) sont mappées
+        successivement (1er = type_ouvrage, 2e = type_defaut).
+        """
         columns = ORDERED_COLUMNS[sheet]
+        # Table des libellés attendus (normalisés) → colonne DB.
+        label_to_col: dict[str, list[str]] = {}
+        for spec in FORM_FIELDS[sheet]:
+            label_to_col.setdefault(_norm_label(spec.label), []).append(spec.column)
+        aliases = {
+            _norm_label(k): v for k, v in _EXCEL_LABEL_ALIASES.get(sheet, {}).items()
+        }
         anchor = "date" if "date" in columns else columns[0]
-        anchor_index = columns.index(anchor)
         self._db.clear_table(sheet)
+        header_map: list[str | None] = []  # colonne DB pour chaque cellule (ou None si inconnue)
+        used_counts: dict[str, int] = {}
         inserted = 0
         for row_index, row in enumerate(worksheet.iter_rows(values_only=True)):
-            if row_index == 0:
-                continue  # ligne d'en-tête
             values = list(row)
-            anchor_value = values[anchor_index] if anchor_index < len(values) else None
-            if anchor_value in (None, ""):
-                continue  # ligne-modèle vide (pas de date réelle)
-            data = {
-                columns[i]: _cell_to_str(values[i])
-                for i in range(min(len(columns), len(values)))
-            }
+            if row_index == 0:
+                # Construit header_map une fois pour toutes.
+                for cell in values:
+                    norm = _norm_label(str(cell)) if cell is not None else ""
+                    candidates = label_to_col.get(norm, [])
+                    if not candidates and norm in aliases:
+                        candidates = [aliases[norm]]
+                    if not candidates:
+                        header_map.append(None)
+                        continue
+                    # Pour un libellé dupliqué, prendre la N-ième occurrence.
+                    idx = used_counts.get(norm, 0)
+                    if idx < len(candidates):
+                        header_map.append(candidates[idx])
+                        used_counts[norm] = idx + 1
+                    else:
+                        header_map.append(None)
+                continue
+            data: dict[str, str] = {}
+            for cell_index, col_key in enumerate(header_map):
+                if col_key is None or cell_index >= len(values):
+                    continue
+                data[col_key] = _cell_to_str(values[cell_index])
+            if not data.get(anchor):
+                continue  # ligne-modèle vide
             self._db.insert_generic(sheet, data)
             inserted += 1
         return inserted

@@ -243,50 +243,20 @@ def test_auth_login_success_and_failure(db: Database) -> None:
 
 
 def test_auth_role_permissions(db: Database) -> None:
-    from app.auth import AuthService, Role
+    from app.auth import AuthService
 
     svc = AuthService(db)
-    # Consultant : lecture seule stricte.
     svc.login("ASF", "asfmontauban!")
     assert not svc.session.can_edit()
     assert not svc.session.can_view_planning()
     assert not svc.session.can_manage_users()
-    assert not svc.session.can_view_audit()
 
-    # Planificateur (V1.2) : full sur planning + import, mais PAS d'audit,
-    # PAS d'édition des inspections ASF (rapports en lecture seule),
-    # PAS de gestion des users.
     svc.logout()
     svc.login("Dylan HENRI", "0811048re55Ol5!")
     assert svc.session.can_edit()
     assert svc.session.can_view_planning()
-    assert svc.session.can_import_pdf()
-    assert not svc.session.can_edit_inspections()  # ← nouveau V1.2
     assert not svc.session.can_manage_users()
-    assert not svc.session.can_view_audit()  # ← retiré en V1.2
-
-    # Admin : tout.
-    svc.logout()
-    svc.login("Bovo", "ibak23")
-    assert svc.session.can_edit()
-    assert svc.session.can_edit_inspections()
-    assert svc.session.can_view_planning()
-    assert svc.session.can_manage_users()
     assert svc.session.can_view_audit()
-
-    # Inspecteur ITV : comme Admin mais sans audit/users.
-    svc.logout()
-    inspecteur = svc.create_user(
-        "hugo", "S3cret!", Role.INSPECTEUR_ITV, "Hugo D.",
-    )
-    assert inspecteur.id is not None
-    svc.login("hugo", "S3cret!")
-    assert svc.session.can_edit()
-    assert svc.session.can_edit_inspections()
-    assert svc.session.can_view_planning()
-    assert svc.session.can_import_pdf()
-    assert not svc.session.can_manage_users()
-    assert not svc.session.can_view_audit()
 
 
 def test_auth_create_and_change_password(db: Database) -> None:
