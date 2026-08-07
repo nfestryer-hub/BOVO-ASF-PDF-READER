@@ -94,7 +94,10 @@ bdist_msi_options: dict = {
 #   * DesktopFolder     → raccourci bureau
 # cx_Freeze détectera le doublon binaire et n'embarquera Bovo.exe qu'une
 # seule fois dans le MSI (les entrées Shortcut sont dédupliquées).
-base = "Win32GUI" if sys.platform == "win32" else None
+# cx_Freeze 8.x utilise des noms de ``base`` simplifiés : ``"gui"`` (GUI
+# Windows, équivalent de l'ancien ``"Win32GUI"``), ``"console"``,
+# ``"service"``. Sur Linux/macOS on laisse ``None`` (console standard).
+base = "gui" if sys.platform == "win32" else None
 
 executables = [
     Executable(
