@@ -104,7 +104,6 @@ executables = [
         icon=icon_path,
         shortcut_name="Bovo ASF Manager",
         shortcut_dir="ProgramMenuFolder",     # menu Démarrer
-        copyright="© Bovo",
     ),
     Executable(
         script="main.py",
@@ -113,7 +112,6 @@ executables = [
         icon=icon_path,
         shortcut_name="Bovo ASF Manager",
         shortcut_dir="DesktopFolder",         # icône bureau
-        copyright="© Bovo",
     ),
 ]
 
