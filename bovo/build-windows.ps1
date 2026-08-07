@@ -42,12 +42,15 @@ Write-Host "=== Build Bovo ASF Manager (Windows onefile) ===" -ForegroundColor C
 Write-Host "Répertoire : $scriptDir"
 
 # --- Vérif Python -----------------------------------------------------
-$python = "python"
+# Sur Windows on utilise ``py`` (Python Launcher officiel) plutôt que
+# ``python`` : il est fourni par tous les installateurs python.org et
+# gère nativement plusieurs versions Python installées côte à côte.
+$python = "py"
 try {
     $version = & $python --version 2>&1
     Write-Host "Python détecté : $version" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Python introuvable dans le PATH." -ForegroundColor Red
+    Write-Host "❌ Python introuvable dans le PATH (commande ``py`` inconnue)." -ForegroundColor Red
     Write-Host "   Installe Python 3.11+ depuis https://www.python.org/downloads/"
     exit 1
 }

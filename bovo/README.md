@@ -45,7 +45,8 @@ bovo/
 
 ```bash
 cd bovo
-python -m venv .venv
+# Windows : py -m venv .venv       |   macOS/Linux : python -m venv .venv
+py -m venv .venv
 # Windows : .venv\Scripts\activate   |   macOS/Linux : source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -53,7 +54,8 @@ pip install -r requirements.txt
 ## Lancement
 
 ```bash
-python main.py
+# Windows : py main.py             |   macOS/Linux : python main.py
+py main.py
 ```
 
 Au démarrage : splash animé (logo + « Développé par HENRI Dylan »), puis page

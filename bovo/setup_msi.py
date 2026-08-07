@@ -4,7 +4,7 @@ Compatible cx_Freeze **8.6.4** / Python **3.13.14**.
 
 Usage (à lancer sur Windows depuis /app/bovo) :
 
-    python setup_msi.py bdist_msi
+    py setup_msi.py bdist_msi
 
 Produit ``dist/Bovo-<version>-win64.msi`` — un vrai installateur MSI qui :
 

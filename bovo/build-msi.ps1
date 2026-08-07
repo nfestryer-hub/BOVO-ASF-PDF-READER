@@ -49,14 +49,17 @@ $version = $matches[1]
 Write-Host "=== Build Bovo ASF Manager v$version (MSI, cx_Freeze 8.6.4) ===" -ForegroundColor Cyan
 
 # --- Vérif Python 3.13+ ----------------------------------------------
+# Sur Windows, on utilise ``py`` (Python Launcher officiel) plutôt que
+# ``python`` : il est installé par tous les installateurs python.org et
+# gère nativement plusieurs versions installées côte à côte.
 try {
-    $pyVersion = (& python --version 2>&1).ToString()
+    $pyVersion = (& py --version 2>&1).ToString()
     Write-Host "Python : $pyVersion" -ForegroundColor Green
     if ($pyVersion -notmatch '3\.(1[3-9]|[2-9]\d)') {
         Write-Host "⚠  Python 3.13+ recommandé (détecté : $pyVersion). Continue quand même." -ForegroundColor Yellow
     }
 } catch {
-    Write-Host "❌ Python introuvable. Installe Python 3.13+ depuis python.org." -ForegroundColor Red
+    Write-Host "❌ Python introuvable (commande ``py`` inconnue). Installe Python 3.13+ depuis python.org." -ForegroundColor Red
     exit 1
 }
 
@@ -64,7 +67,7 @@ try {
 $venv = Join-Path $scriptDir ".venv"
 if (-not (Test-Path $venv)) {
     Write-Host "→ Création de l'environnement virtuel .venv..." -ForegroundColor Yellow
-    python -m venv .venv
+    py -m venv .venv
 }
 & (Join-Path $venv "Scripts\Activate.ps1")
 
