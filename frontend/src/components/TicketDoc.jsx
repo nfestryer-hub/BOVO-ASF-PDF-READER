@@ -93,14 +93,14 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
 
       <div className="tk-weights">
         <div className="tk-wrow">
-          <span className="tk-wlabel">P1:</span>
-          <Field k="fPoids" min={6} className="tk-mx" /> <span>kg</span>
-          <span className="tk-dsd">DSD :</span> <Field k="fDsd" min={1} className="tk-mx" />
+          <span className="tk-wlabel tk-mx">P1:</span>
+          <Field k="fPoids" min={6} className="tk-mx" /> <span className="tk-mx">kg</span>
+          <span className="tk-dsd">DSD :</span> <Field k="fDsd" min={1} />
         </div>
         <div className="tk-wrow">
-          <span className="tk-wlabel">P2:</span>
-          <Field k="p2Poids" min={6} className="tk-mx" /> <span>kg</span>
-          <span className="tk-dsd">DSD :</span> <Field k="p2Dsd" min={1} className="tk-mx" />
+          <span className="tk-wlabel tk-mx">P2:</span>
+          <Field k="p2Poids" min={6} className="tk-mx" /> <span className="tk-mx">kg</span>
+          <span className="tk-dsd">DSD :</span> <Field k="p2Dsd" min={1} />
         </div>
       </div>
 

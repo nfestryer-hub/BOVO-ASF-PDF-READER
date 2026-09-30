@@ -13,8 +13,8 @@
 
 .tk-center { text-align: center; }
 .tk-strong { font-weight: 400; letter-spacing: 1px; }
-.tk-gap { height: 13px; }
-.tk-gap-sm { height: 7px; }
+.tk-gap { height: 16px; }
+.tk-gap-sm { height: 11px; }
 
 .tk-two {
   display: flex;
@@ -54,7 +54,7 @@
 
 /* chiffres P1/P2 + poids net + en-tête ASTEO (police type "Matrice A3 Large") */
 .tk-mx,
-.tk-input.tk-mx { font-family: "Matrice A3 Large", "Roboto Mono", "Courier New", monospace; }
+.tk-input.tk-mx { font-family: "Roboto Mono", "Courier New", monospace; font-weight: 700; }
 /* provenance : légèrement réduite pour tenir sur une ligne */
 .tk-prov,
 .tk-input.tk-prov { font-size: 10px; }
@@ -87,9 +87,9 @@
 /* provenance header + value */
 .tk-fiche {
   display: flex;
-  justify-content: space-between;
-  font-size: 8.5px;
-  padding: 0 2px;
+  justify-content: center;
+  gap: 16px;
+  font-size: 10px;
 }
 
 /* weights */
@@ -103,7 +103,7 @@
   gap: 6px;
   font-weight: 400;
   font-size: 12px;
-  padding: 1px 0;
+  padding: 5px 0;
 }
 .tk-wlabel { width: 3ch; display: inline-block; white-space: pre; }
 .tk-dsd { margin-left: 8px; font-weight: 400; font-size: 11px; }

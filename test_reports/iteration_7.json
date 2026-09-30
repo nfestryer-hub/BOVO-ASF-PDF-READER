@@ -1,0 +1,22 @@
+{
+  "summary": "Retest of the two CRITICAL fixes from iteration_6 on both React root and standalone /logiciel-ticket-asteo.html. RESULTS: All critical requirements PASS. (1) REACT COMPILE: App.css no longer contains local @font-face; the React app compiles and [data-testid='ticket-document'] mounts cleanly. No webpack overlay, no pageerror. Roboto Mono loaded (document.fonts.check('11px \"Roboto Mono\"')=true). (2) REACT NO-OVERFLOW: with field-provenance='89638 YEO FRAIS 23 AV DE FONDEYRE TOULOUSE' and field-nCamion='HK-319-GA', zero descendants of the ticket exceed its right edge (offender count=0, ticketRight=698). (3) REACT PDF EXPORT: clicking save-pdf-button produces a downloadable PDF starting with %PDF (size ~1.6MB, valid). (4) STANDALONE OFFLINE: with all external network blocked except the document, document.fonts.check('11px TicketMono')=true, window.jspdf.jsPDF and window.html2canvas defined, no pageerror. (5) STANDALONE NO-OVERFLOW: with the same long provenance and camion, zero descendants of #ticket overflow (offender count=0). The .prov 10px reduction correctly fits the line. (6) STANDALONE EXPORT/PRINT: button.primary downloads a valid %PDF with A4 MediaBox; adding 5 tickets and re-exporting also yields a valid A4 PDF; button.blue shows '\u2713 Impression envoy\u00e9e'. (7) LABELS/HEADER: Both surfaces show '*** ASTEO ***', 'P1:'/'P2:', '31021 TOULOUSE CEDEX 2'; the .tk-mx / .mx classes are applied to the ASTEO header, P1/P2 numbers and POIDS NET. The Matrice A3 Large font is not embedded yet (expected fallback to Roboto Mono/TicketMono), per instructions this is NOT a failure.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Matrice A3 Large is referenced in .tk-mx/.mx but not embedded on either surface; document.fonts.check for that family returns true only because the browser reports 'available' via fallback. If pixel-perfect Matrice numbers are required, embed the actual Matrice A3 Large woff2 (base64 in the standalone, and via @font-face using PUBLIC_URL or FontFace API in React).",
+    "React ticket right edge measured 698px vs the CSS width 300px \u2013 note the CSS width is 300px but the layout uses default box padding; the current no-overflow measurement is against getBoundingClientRect which correctly includes padding. Not a bug, just noting for future tests."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100% (7/7 required checks pass)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Both critical iteration_6 bugs are resolved. React compiles via Google Fonts (Roboto Mono) linked in public/index.html; App.css no longer has local @font-face. Standalone .prov reduces provenance to 10px which fits the ticket inner width. If Matrice A3 Large is later embedded, verify the numeric glyphs (P1/P2/POIDS NET/ASTEO header) actually render in that face by inspecting computed font-family match, not just document.fonts.check (which returns true for any fallback-available family).",
+  "rca of the issue": "N/A - all previously reported critical issues are fixed."
+}
