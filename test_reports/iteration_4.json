@@ -1,0 +1,35 @@
+{
+  "summary": "Verified both deliverables: React root app and standalone /logiciel-ticket-asteo.html. Labels 'P1:' and 'P2:' correctly displayed (no old 'F :'). PDF generation works on both; downloads captured via Playwright accept_downloads. Both PDFs have valid %PDF header and A4 MediaBox (595.28 x 841.89 pt). Filename input changes are honored on both. Standalone shows '✓ PDF enregistré : <name>.pdf' status message. jsPDF (window.jspdf.jsPDF) and html2canvas both load from CDN.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "TicketDoc is rendered twice (visible + off-screen for print) with the same data-testid='ticket-document'. Not a bug but causes strict-mode locator collisions in tests. Consider a distinct testid for the print copy or aria-hidden markers.",
+    "React handleSave falls back to opening a new tab when running inside an iframe (preview). This is correct for the preview environment; production/top-level execution triggers real download as expected."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "React app: /tmp/dl/9848.pdf and TESTFILE_react_123.pdf both MediaBox 595.28x841.89 pt (A4). Standalone: 9848.pdf (5.7MB) and TESTFILE_standalone_456.pdf, both A4. Ticket image placed 80mm wide top-right at x=210-80-8mm, y=8mm (real size, no scaling). Labels confirmed: 'P1:' and 'P2:' (old 'F :' removed). No console errors seen.",
+  "verification_details": {
+    "react": {
+      "labels": {"P1:": true, "P2:": true, "old_F:": false},
+      "default_download": {"name": "9848.pdf", "header_ok": true, "mediabox_a4": true, "size_bytes": 1918549},
+      "renamed_download": {"name": "TESTFILE_react_123.pdf", "header_ok": true, "mediabox": [0.0, 0.0, 595.28, 841.89]}
+    },
+    "standalone": {
+      "libs": {"jspdf": true, "html2canvas": true},
+      "labels": {"P1:": true, "P2:": true, "old_F:": false},
+      "default_download": {"name": "9848.pdf", "header_ok": true, "mediabox": [0.0, 0.0, 595.28, 841.89], "size_bytes": 5749272},
+      "renamed_download": {"name": "TESTFILE_standalone_456.pdf", "header_ok": true, "mediabox": [0.0, 0.0, 595.28, 841.89]},
+      "msg_element": "\u2713 PDF enregistré : 9848.pdf"
+    }
+  }
+}
