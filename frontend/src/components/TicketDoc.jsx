@@ -1,5 +1,10 @@
 import React, { forwardRef } from "react";
 
+const renderZeros = (v) =>
+  String(v ?? "")
+    .split(/(0)/)
+    .map((p, i) => (p === "0" ? <span key={i} className="tk-zero">0</span> : p || null));
+
 const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
   const Field = ({ k, min = 2, blue = false, className = "" }) => {
     const v = data[k] ?? "";
@@ -9,7 +14,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
           className={`tk-val ${className}`}
           style={blue ? { color: "#1d4ed8" } : undefined}
         >
-          {v}
+          {renderZeros(v)}
         </span>
       );
     }
@@ -30,13 +35,13 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
 
   return (
     <div className="ticket" ref={ref} data-testid="ticket-document">
-      <div className="tk-center tk-strong tk-mx">***&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ASTEO&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;***</div>
+      <div className="tk-center tk-strong tk-mx tk-hdr">***&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ASTEO&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;***</div>
 
       <div className="tk-gap" />
 
       <div className="tk-center">51 Chemin de Chantelle</div>
       <div className="tk-center">CS 82341</div>
-      <div className="tk-center">31021 TOULOUSE CEDEX 2</div>
+      <div className="tk-center">{renderZeros("31021 TOULOUSE CEDEX 2")}</div>
 
       <div className="tk-gap" />
 

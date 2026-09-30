@@ -18,15 +18,15 @@
 
 .tk-two {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
-  gap: 6px;
+  gap: 26px;
 }
 .tk-inline {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 14px;
+  gap: 26px;
 }
 .tk-seg { white-space: nowrap; }
 
@@ -58,6 +58,10 @@
 /* provenance : légèrement réduite pour tenir sur une ligne */
 .tk-prov,
 .tk-input.tk-prov { font-size: 10px; }
+/* Whyst Wide uniquement sur les zéros */
+.tk-zero { font-family: "Whyst0", "Roboto Mono", monospace; font-weight: 400; }
+/* en-tête ASTEO étiré */
+.tk-hdr { letter-spacing: 4px; }
 
 /* big handwritten reference on top */
 .tk-bl-wrap { text-align: center; margin-bottom: 6px; }
