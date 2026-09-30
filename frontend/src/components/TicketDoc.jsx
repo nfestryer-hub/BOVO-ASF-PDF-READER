@@ -30,13 +30,13 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
 
   return (
     <div className="ticket" ref={ref} data-testid="ticket-document">
-      <div className="tk-center tk-strong">* * *&nbsp;&nbsp;ASTEO&nbsp;&nbsp;* * *</div>
+      <div className="tk-center tk-strong">***&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ASTEO&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;***</div>
 
       <div className="tk-gap" />
 
       <div className="tk-center">51 Chemin de Chantelle</div>
       <div className="tk-center">CS 82341</div>
-      <div className="tk-center">31021 TOULOUSE CEDEX .</div>
+      <div className="tk-center">31021 TOULOUSE CEDEX 2</div>
 
       <div className="tk-gap" />
 
