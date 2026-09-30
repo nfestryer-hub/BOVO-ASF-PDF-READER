@@ -62,7 +62,7 @@
 .tk-zero { font-family: "Whyst0", "Roboto Mono", monospace; font-weight: 400; }
 /* en-tête ASTEO étiré */
 .tk-hdr { letter-spacing: 4px; }
-.tk-wp { font-family: "Whyst0", "TicketMono", "Roboto Mono", monospace; }
+.tk-wp { font-family: "Whyst0", "TicketMono", "Roboto Mono", monospace; display: inline-block; transform: scale(0.9); transform-origin: center center; vertical-align: middle; }
 
 /* big handwritten reference on top */
 .tk-bl-wrap { text-align: center; margin-bottom: 6px; }
