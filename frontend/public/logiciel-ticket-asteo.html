@@ -634,7 +634,16 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     wrap.style.cssText = 'position:fixed;left:-10000px;top:0;background:#ffffff;';
     const nodes = list.map(d => { const n = buildNodeFromData(d); wrap.appendChild(n); return n; });
     document.body.appendChild(wrap);
-    if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch(_){} }
+    if (document.fonts) {
+      try {
+        await document.fonts.ready;
+        await Promise.all([
+          document.fonts.load("12px Whyst0"),
+          document.fonts.load("11px TicketMono"),
+          document.fonts.load("700 11px TicketMono"),
+        ]);
+      } catch(_){}
+    }
     const canvases = [];
     for (const n of nodes) {
       canvases.push(await html2canvas(n, { scale: 3, backgroundColor: '#ffffff', logging: false }));

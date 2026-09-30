@@ -41,7 +41,16 @@ export default function TicketMaker() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (document.fonts && document.fonts.ready) await document.fonts.ready;
+      if (document.fonts) {
+        try {
+          await document.fonts.ready;
+          await Promise.all([
+            document.fonts.load('12px Whyst0'),
+            document.fonts.load('11px "Roboto Mono"'),
+            document.fonts.load('700 11px "Roboto Mono"'),
+          ]);
+        } catch (_) {}
+      }
       const el = printRef.current;
       const canvas = await html2canvas(el, {
         scale: 2,
