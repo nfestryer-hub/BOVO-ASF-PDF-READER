@@ -55,8 +55,30 @@ export default function TicketMaker() {
       pdf.addImage(imgData, "PNG", 0, 0, wMm, hMm);
       const clean =
         (filename || "").toString().trim().replace(/[^\w\-]/g, "_") || "ticket";
-      pdf.save(`${clean}.pdf`);
-      toast.success(`PDF enregistré : ${clean}.pdf`);
+
+      const blob = pdf.output("blob");
+      const url = URL.createObjectURL(blob);
+      const inIframe = window.self !== window.top;
+
+      if (inIframe) {
+        // Dans l'aperçu (iframe), le téléchargement direct est bloqué :
+        // on ouvre le PDF dans un nouvel onglet pour pouvoir l'enregistrer/imprimer.
+        const win = window.open(url, "_blank");
+        if (!win) {
+          toast.error("Autorisez les fenêtres pop-up pour ouvrir le PDF");
+        } else {
+          toast.success(`PDF prêt : ${clean}.pdf (nouvel onglet)`);
+        }
+      } else {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${clean}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        toast.success(`PDF enregistré : ${clean}.pdf`);
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
       console.error(e);
       toast.error("Erreur lors de la génération du PDF");
