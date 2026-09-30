@@ -1,0 +1,112 @@
+/* ---------- Ticket (fidèle à la photo) ---------- */
+.ticket {
+  width: 300px;
+  background: #ffffff;
+  color: #141414;
+  font-family: "Cousine", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  padding: 20px 16px 28px;
+  box-sizing: border-box;
+}
+
+.tk-center { text-align: center; }
+.tk-strong { font-weight: 700; letter-spacing: 0.5px; }
+.tk-gap { height: 13px; }
+.tk-gap-sm { height: 7px; }
+
+.tk-two {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+.tk-inline {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 22px;
+}
+.tk-seg { white-space: nowrap; }
+
+/* inline editable value */
+.tk-input {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  border: none;
+  outline: none;
+  background: #fde047;
+  color: inherit;
+  padding: 0 2px;
+  margin: 0 1px;
+  text-align: center;
+  border-radius: 2px;
+  min-width: 2ch;
+  box-sizing: content-box;
+  vertical-align: baseline;
+}
+.tk-input::selection { background: #f59e0b; }
+.tk-input:focus { box-shadow: 0 0 0 2px #f59e0b; }
+
+.tk-val { white-space: pre; }
+
+/* big handwritten reference on top */
+.tk-bl-wrap { text-align: center; margin-bottom: 6px; }
+.tk-bl-input,
+.tk-bl-val {
+  font-family: "Caveat", cursive;
+  font-size: 34px;
+  font-weight: 700;
+  color: #1d4ed8;
+  line-height: 1.1;
+  text-align: center;
+}
+.tk-bl-input {
+  border: none;
+  outline: none;
+  background: #fde047;
+  border-radius: 4px;
+  padding: 0 6px;
+  min-width: 4ch;
+}
+.tk-bl-input:focus { box-shadow: 0 0 0 2px #f59e0b; }
+
+/* client / zone block */
+.tk-client { padding-left: 26px; }
+.tk-zone { text-align: center; }
+
+/* provenance header + value */
+.tk-fiche {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+/* weights */
+.tk-weights {
+  width: max-content;
+  margin: 0 auto;
+}
+.tk-wrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 1px 0;
+}
+.tk-wlabel { width: 3ch; display: inline-block; white-space: pre; }
+.tk-dsd { margin-left: 10px; font-weight: 400; font-size: 13px; }
+
+/* net */
+.tk-net-num {
+  font-weight: 700;
+  font-size: 19px;
+}
+.tk-net-input {
+  font-size: 19px;
+  font-weight: 700;
+  min-width: 5ch;
+}
