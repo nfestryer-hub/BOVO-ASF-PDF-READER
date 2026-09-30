@@ -1,0 +1,17 @@
+{
+  "summary": "Frontend-only refinement pass verification on BOTH surfaces (standalone /logiciel-ticket-asteo.html and React root). ALL required checks PASS. (1) STANDALONE OFFLINE: with all external network blocked (Cloudflare/beacon/challenge scripts all aborted) except the document, document.fonts.check('11px TicketMono')=true AND document.fonts.check('700 11px TicketMono')=true. window.jspdf.jsPDF and window.html2canvas defined. No pageerror. (2) STANDALONE NO-OVERFLOW: filled #provenance='89638 YEO FRAIS 23 AV DE FONDEYRE TOULOUSE', #nCamion='HK-319-GA', #fPoids='29 100', #p2Poids='19 700', #poidsNet='9 400'. Zero descendants of #ticket exceed its right edge (offenders=0, ticketRight=938). (3) STANDALONE PDF: button.primary downloads valid %PDF (4.19MB) with A4 MediaBox present. Adding 5 tickets via button.green and re-exporting yields a valid multi-page %PDF (3 MediaBoxes). button.blue -> #msg '\u2713 Impression envoy\u00e9e (5 tickets)'. No error. (4) REACT APP: loads at root, [data-testid='ticket-document'] mounts, no pageerror. document.fonts.check for 'Roboto Mono' 400 and 700 both true. With field-provenance long string + field-nCamion 'HK-319-GA', zero overflow offenders. save-pdf-button click captured download: %PDF, 1.86MB, A4 MediaBox present. (5) STYLE/FONT-WEIGHT (both surfaces via getComputedStyle): fPoids fw=700, p2Poids fw=700, POIDS NET fw=700, P1:/P2: labels fw=700 (classes tk-wlabel tk-mx / wlab mx). fDsd fw=400, p2Dsd fw=400 (regular). Font-family resolves to 'Roboto Mono'/TicketMono. Screenshots confirm '*** ASTEO ***' header, '31021 TOULOUSE CEDEX 2' address, and 'Fiche Provenance Adresse Ville' centered row all render correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ASTEO header element was not directly resolvable via a leaf-node querySelector filter in my test script (nested spans); visual screenshot confirms it renders as bold with the mx/tk-mx class. Consider giving the header a data-testid for stable testing in future iterations."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100% (all 5 test groups pass on both surfaces)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Refinement pass verified: Roboto Mono 400+700 embedded (standalone) / loaded via Google Fonts (React), bold applied to ASTEO header, P1:/P2: labels, weight numbers (fPoids/p2Poids) and POIDS NET; DSD label & values remain regular 400. No overflow with long provenance. A4 PDF export works on both surfaces. Print button flashes success msg. No regressions detected.",
+  "rca of the issue": "N/A - no issues found."
+}
