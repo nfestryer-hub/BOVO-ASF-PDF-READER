@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Cousine:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin:0; background:#f1f5f9; font-family:'Inter',sans-serif; color:#0f172a; }
@@ -39,6 +40,8 @@
   .wlab { width:3ch; display:inline-block; white-space:pre; }
   .dsd { margin-left:10px; font-weight:400; font-size:13px; }
   input.net { font-size:19px; font-weight:700; min-width:5ch; }
+  .pv { white-space:pre; }
+  .pv.net { font-size:19px; font-weight:700; }
 
   /* ---- panneau ---- */
   aside .card { background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
@@ -104,7 +107,7 @@
         <div class="tc"><input class="f" id="produit"></div>
         <div class="gap"></div>
         <div class="weights">
-          <div class="wrow"><span class="wlab">F :</span><input class="f" id="fPoids"> <span>kg</span><span class="dsd">DSD :</span> <input class="f" id="fDsd"></div>
+          <div class="wrow"><span class="wlab">P1:</span><input class="f" id="fPoids"> <span>kg</span><span class="dsd">DSD :</span> <input class="f" id="fDsd"></div>
           <div class="wrow"><span class="wlab">P2:</span><input class="f" id="p2Poids"> <span>kg</span><span class="dsd">DSD :</span> <input class="f" id="p2Dsd"></div>
         </div>
         <div class="gap"></div>
@@ -126,7 +129,7 @@
       <button class="primary" onclick="generate()">⬇ Enregistrer sous PDF</button>
       <button class="ghost" onclick="resetAll()">↺ Réinitialiser</button>
       <div class="ok" id="msg"></div>
-      <p class="tip">Format ticket : 80 mm de large (rouleau de caisse). La hauteur s'adapte au contenu. Le texte du PDF est net et sélectionnable.</p>
+      <p class="tip">Sortie : page <b>A4</b>, ticket à sa <b>taille réelle (80 mm)</b> placé en <b>haut à droite</b> de la feuille, sans mise à l'échelle. Mise en page et espacements fidèles au ticket original.</p>
     </div>
   </aside>
 </main>
@@ -160,60 +163,47 @@
     const d={}; KEYS.forEach(k=> d[k]=document.getElementById(k).value); return d;
   }
 
-  function draw(doc, d){
-    const W=80, L=5, RM=75;
-    let y=9;
-    const center=(t,fs,bold)=>{ doc.setFontSize(fs); doc.setFont('courier',bold?'bold':'normal'); const w=doc.getTextWidth(t); doc.text(t,(W-w)/2,y); };
-    const two=(lt,rt,fs)=>{ doc.setFontSize(fs); doc.setFont('courier','normal'); doc.text(lt,L,y); const w=doc.getTextWidth(rt); doc.text(rt,RM-w,y); };
-
-    center('* * *  ASTEO  * * *',9,true); y+=6.5;
-    center('51 Chemin de Chantelle',9,false); y+=4;
-    center('CS 82341',9,false); y+=4;
-    center('31021 TOULOUSE CEDEX .',9,false); y+=7;
-    two('N Pesee : '+d.nPesee,'Date '+d.date,9); y+=5;
-    center('He P1 '+d.heP1+'      He P2 '+d.heP2,9,false); y+=5;
-    two('Badge : '+d.badge,'N Camion : '+d.nCamion,9); y+=7;
-    doc.setFontSize(9); doc.setFont('courier','normal'); doc.text('Client : '+d.client, 14, y); y+=4.5;
-    center('Zone : '+d.zone,9,false); y+=7;
-    doc.setFontSize(8); doc.setFont('courier','normal');
-    doc.text('Fiche', L, y);
-    doc.text('Provenance', 22, y);
-    doc.text('Adresse', 46, y);
-    { const t='Ville'; const w=doc.getTextWidth(t); doc.text(t, RM-w, y); }
-    y+=5;
-    center(d.provenance,9,false); y+=7;
-    center('* * * PRODUIT * * *',9,true); y+=5;
-    center(d.produit,9,false); y+=8;
-    const bx=13;
-    doc.setFontSize(10); doc.setFont('courier','bold');
-    doc.text('F :', bx, y); doc.text(d.fPoids+' kg', bx+9, y);
-    doc.setFontSize(9); doc.setFont('courier','normal'); doc.text('DSD : '+d.fDsd, bx+35, y);
-    y+=5;
-    doc.setFontSize(10); doc.setFont('courier','bold');
-    doc.text('P2:', bx, y); doc.text(d.p2Poids+' kg', bx+9, y);
-    doc.setFontSize(9); doc.setFont('courier','normal'); doc.text('DSD : '+d.p2Dsd, bx+35, y);
-    y+=8.5;
-    center('* * * POIDS NET * * *',9,true); y+=8;
-    center(d.poidsNet+' kg',13,true); y+=5;
-    return y;
+  function buildPrintNode(){
+    const src = document.getElementById('ticket');
+    const clone = src.cloneNode(true);
+    clone.querySelectorAll('input').forEach(inp => {
+      const span = document.createElement('span');
+      span.textContent = inp.value;
+      span.className = 'pv' + (inp.classList.contains('net') ? ' net' : '');
+      inp.replaceWith(span);
+    });
+    const wrap = document.createElement('div');
+    wrap.style.position = 'fixed';
+    wrap.style.left = '-10000px';
+    wrap.style.top = '0';
+    wrap.style.background = '#ffffff';
+    wrap.appendChild(clone);
+    document.body.appendChild(wrap);
+    return { wrap, node: clone };
   }
 
-  function generate(){
+  async function generate(){
+    const { wrap, node } = buildPrintNode();
     try{
       const { jsPDF } = window.jspdf;
-      const d = data();
-      // 1ère passe : mesurer la hauteur
-      const tmp = new jsPDF({ unit:'mm', format:[80, 300] });
-      const endY = draw(tmp, d);
-      // 2ème passe : document à la bonne hauteur
-      const doc = new jsPDF({ unit:'mm', format:[80, Math.ceil(endY)+4] });
-      draw(doc, d);
+      if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch(_){} }
+      const canvas = await html2canvas(node, { scale: 3, backgroundColor: '#ffffff', logging: false });
+      const img = canvas.toDataURL('image/png');
+      // A4 portrait, ticket à taille réelle (80 mm) en haut à droite, sans mise à l'échelle
+      const doc = new jsPDF({ unit:'mm', format:'a4' });
+      const tW = 80;
+      const tH = tW * canvas.height / canvas.width;
+      const x = 210 - tW - 8;
+      const y = 8;
+      doc.addImage(img, 'PNG', x, y, tW, tH);
       let name = (document.getElementById('filename').value || 'ticket').trim().replace(/[^\w\-]/g,'_') || 'ticket';
       doc.save(name + '.pdf');
       msg('✓ PDF enregistré : ' + name + '.pdf');
     }catch(e){
       console.error(e);
       msg('Erreur : ' + (e && e.message ? e.message : e));
+    }finally{
+      wrap.remove();
     }
   }
 </script>

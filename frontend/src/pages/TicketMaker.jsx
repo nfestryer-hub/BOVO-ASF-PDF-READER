@@ -49,10 +49,11 @@ export default function TicketMaker() {
         logging: false,
       });
       const imgData = canvas.toDataURL("image/png");
+      // A4 portrait, ticket à taille réelle (80 mm) en haut à droite, sans mise à l'échelle
       const wMm = 80;
       const hMm = (canvas.height / canvas.width) * wMm;
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: [wMm, hMm] });
-      pdf.addImage(imgData, "PNG", 0, 0, wMm, hMm);
+      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      pdf.addImage(imgData, "PNG", 210 - wMm - 8, 8, wMm, hMm);
       const clean =
         (filename || "").toString().trim().replace(/[^\w\-]/g, "_") || "ticket";
 
@@ -178,7 +179,7 @@ export default function TicketMaker() {
             </p>
 
             <p className="mt-4 text-xs leading-relaxed text-slate-400">
-              Format ticket : 80 mm de large (rouleau de caisse). La hauteur s'adapte automatiquement au contenu.
+              Sortie : page A4, ticket à sa taille réelle (80 mm) placé en haut à droite de la feuille, sans mise à l'échelle.
             </p>
           </div>
         </aside>
