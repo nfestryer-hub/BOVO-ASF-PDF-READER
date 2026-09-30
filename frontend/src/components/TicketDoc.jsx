@@ -71,7 +71,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
       <div className="tk-gap-sm" />
 
       <div className="tk-two">
-        <span className="tk-seg">Barige : <Field k="barige" min={4} /></span>
+        <span className="tk-seg">Badge : <Field k="barige" min={4} /></span>
         <span className="tk-seg">N Camion : <Field k="nCamion" min={7} /></span>
       </div>
 
