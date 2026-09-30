@@ -38,7 +38,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
             className="tk-bl-input"
             value={data.bl ?? ""}
             spellCheck={false}
-            style={{ width: `${Math.max((data.bl || "").length, 4) + 1}ch` }}
+            style={{ width: `${(Math.max((data.bl || "").length, 4) + 2) * 0.6}em` }}
             onChange={(e) => onChange && onChange("bl", e.target.value)}
           />
         ) : (

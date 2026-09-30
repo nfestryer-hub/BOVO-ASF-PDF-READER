@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only testing of ASTEO weighbridge ticket PDF generator. Verified all fixed text is rendered, all 16 editable fields exist and are typeable, PDF download fires with correct filename and valid %PDF header (both custom and default), and Reset restores defaults.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TicketDoc - BL (handwritten) input", "issue": "Auto-grow width uses `Math.max(len,4)+1 ch`, but the handwritten (script) font in .tk-bl-input is wider than 1ch per char, so long values get horizontally clipped (scrollWidth 256 vs clientWidth 240 for a 15-char value). Default 'BL 9848' displays fine, but users typing longer references will see the last character clipped.", "selector": "[data-testid=\"field-bl\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Increase width buffer for the .tk-bl-input handwritten input (e.g., multiply length by ~1.4 or use a canvas-based measurement) so long BL references are not clipped."
+  ],
+  "critical_code_review_comments": [
+    "TicketDoc.jsx: width calc `${Math.max(len, min)+1}ch` only works for monospace/similar-width fonts. The BL input uses a script/handwritten font (see .tk-bl-input CSS) so 1ch under-estimates. Use a wider multiplier or measure text via canvas.",
+    "TicketMaker.jsx handleSave: filename sanitization replaces spaces and special chars with underscores. Acceptable, but consider preserving user intent or showing preview.",
+    "html2canvas at scale:3 produces a large ~4.6MB PDF for a small 80mm ticket. Consider scale 2 to reduce file size."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (not tested per request)", "frontend": "94% (15/16 fields render correctly + PDF + reset OK; 1 field has clip bug)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Pure client-side app. Frontend at REACT_APP_BACKEND_URL. Use Playwright with accept_downloads context to capture PDFs. All fixed text and 16 editable inputs verified; PDF download fires with correct filename (%PDF header confirmed). Only remaining bug: BL handwritten-font input clips beyond ~7-8 chars.",
+  "rca of the issue": "BL input in TicketDoc.jsx sets width via `${Math.max(len,4)+1}ch`. The `ch` unit equals the width of the '0' glyph in the current font. .tk-bl-input uses a handwritten/script font where average glyph width exceeds 1ch, so the computed width is insufficient once length grows. Fix: use a coefficient (e.g. `(len+1) * 0.9em`) or a wider min (e.g. `+3ch`), or measure with a hidden span."
+}

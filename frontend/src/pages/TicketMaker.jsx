@@ -44,7 +44,7 @@ export default function TicketMaker() {
       if (document.fonts && document.fonts.ready) await document.fonts.ready;
       const el = printRef.current;
       const canvas = await html2canvas(el, {
-        scale: 3,
+        scale: 2,
         backgroundColor: "#ffffff",
         logging: false,
       });
