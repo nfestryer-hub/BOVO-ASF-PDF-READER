@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Logiciel Ticket ASTEO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cousine:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#f1f5f9; font-family:'Inter',sans-serif; color:#0f172a; }
+  header { background:#fff; border-bottom:1px solid #e2e8f0; }
+  .hd { max-width:900px; margin:0 auto; padding:16px 20px; display:flex; align-items:center; gap:12px; }
+  .logo { width:40px; height:40px; border-radius:10px; background:#0f172a; color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; }
+  h1 { font-size:18px; margin:0; }
+  .sub { font-size:12px; color:#64748b; margin:2px 0 0; }
+  main { max-width:900px; margin:0 auto; padding:28px 20px; display:grid; grid-template-columns:1fr 300px; gap:24px; align-items:start; }
+  @media (max-width:760px){ main{ grid-template-columns:1fr; } }
+  .note { border:1px solid #fde68a; background:#fffbeb; color:#92400e; padding:10px 14px; border-radius:10px; font-size:14px; text-align:center; margin-bottom:16px; }
+  .mark { background:#fde047; padding:0 4px; border-radius:3px; font-weight:600; }
+  .paper { background:#fff; border-radius:3px; box-shadow:0 10px 40px rgba(0,0,0,.12); width:300px; margin:0 auto; }
+
+  /* ---- ticket fidèle ---- */
+  .ticket { width:300px; padding:20px 16px 28px; font-family:'Cousine','Courier New',monospace; font-size:13px; line-height:1.55; color:#141414; }
+  .tc { text-align:center; }
+  .tb { font-weight:700; letter-spacing:.5px; }
+  .gap { height:13px; } .gaps { height:7px; }
+  .two { display:flex; justify-content:space-between; align-items:center; gap:6px; }
+  .inl { display:flex; justify-content:center; align-items:center; gap:22px; }
+  .seg { white-space:nowrap; }
+  input.f { font-family:inherit; font-size:inherit; line-height:inherit; border:none; outline:none; background:#fde047; color:inherit; padding:0 2px; margin:0 1px; text-align:center; border-radius:2px; box-sizing:content-box; min-width:2ch; }
+  input.f:focus { box-shadow:0 0 0 2px #f59e0b; }
+  .client { padding-left:26px; }
+  .fiche { display:flex; justify-content:space-between; font-size:12px; padding:0 2px; }
+  .weights { width:max-content; margin:0 auto; }
+  .wrow { display:flex; align-items:center; gap:6px; font-weight:700; font-size:14px; padding:1px 0; }
+  .wlab { width:3ch; display:inline-block; white-space:pre; }
+  .dsd { margin-left:10px; font-weight:400; font-size:13px; }
+  input.net { font-size:19px; font-weight:700; min-width:5ch; }
+
+  /* ---- panneau ---- */
+  aside .card { background:#fff; border:1px solid #e2e8f0; border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .lbl { font-size:12px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:#64748b; margin:0 0 14px; }
+  .fld-lbl { font-size:14px; font-weight:500; color:#334155; display:block; margin-bottom:6px; }
+  .fname { display:flex; align-items:center; border:1px solid #cbd5e1; border-radius:9px; padding:0 12px; margin-bottom:16px; }
+  .fname input { border:none; outline:none; width:100%; padding:10px 0; font-size:14px; background:transparent; }
+  .fname span { color:#94a3b8; font-size:14px; }
+  button.primary { width:100%; background:#0f172a; color:#fff; border:none; border-radius:9px; padding:13px; font-size:14px; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; }
+  button.primary:hover { background:#334155; }
+  button.ghost { width:100%; margin-top:12px; background:#fff; border:1px solid #cbd5e1; color:#475569; border-radius:9px; padding:11px; font-size:14px; font-weight:500; cursor:pointer; }
+  button.ghost:hover { background:#f8fafc; }
+  .tip { font-size:12px; color:#94a3b8; margin-top:16px; line-height:1.5; }
+  .ok { font-size:13px; color:#16a34a; margin-top:10px; min-height:18px; font-weight:500; }
+</style>
+</head>
+<body>
+<header>
+  <div class="hd">
+    <div class="logo">AS</div>
+    <div>
+      <h1>Logiciel Ticket de pesée — ASTEO</h1>
+      <p class="sub">Application autonome. Remplissez les champs surlignés puis enregistrez en PDF.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section>
+    <div class="note">Les champs <span class="mark">surlignés en jaune</span> sont modifiables. Le reste de la mise en page reste fixe.</div>
+    <div class="paper">
+      <div class="ticket" id="ticket">
+        <div class="tc tb">* * *&nbsp;&nbsp;ASTEO&nbsp;&nbsp;* * *</div>
+        <div class="gap"></div>
+        <div class="tc">51 Chemin de Chantelle</div>
+        <div class="tc">CS 82341</div>
+        <div class="tc">31021 TOULOUSE CEDEX .</div>
+        <div class="gap"></div>
+        <div class="two">
+          <span class="seg">N Pesee : <input class="f" id="nPesee"></span>
+          <span class="seg">Date <input class="f" id="date"></span>
+        </div>
+        <div class="gaps"></div>
+        <div class="inl">
+          <span class="seg">He P1 <input class="f" id="heP1"></span>
+          <span class="seg">He P2 <input class="f" id="heP2"></span>
+        </div>
+        <div class="gaps"></div>
+        <div class="two">
+          <span class="seg">Badge : <input class="f" id="badge"></span>
+          <span class="seg">N Camion : <input class="f" id="nCamion"></span>
+        </div>
+        <div class="gap"></div>
+        <div class="client">Client : <input class="f" id="client"></div>
+        <div class="tc">Zone : <input class="f" id="zone"></div>
+        <div class="gap"></div>
+        <div class="fiche"><span>Fiche</span><span>Provenance</span><span>Adresse</span><span>Ville</span></div>
+        <div class="gaps"></div>
+        <div class="tc"><input class="f" id="provenance"></div>
+        <div class="gap"></div>
+        <div class="tc tb">* * * PRODUIT * * *</div>
+        <div class="gaps"></div>
+        <div class="tc"><input class="f" id="produit"></div>
+        <div class="gap"></div>
+        <div class="weights">
+          <div class="wrow"><span class="wlab">F :</span><input class="f" id="fPoids"> <span>kg</span><span class="dsd">DSD :</span> <input class="f" id="fDsd"></div>
+          <div class="wrow"><span class="wlab">P2:</span><input class="f" id="p2Poids"> <span>kg</span><span class="dsd">DSD :</span> <input class="f" id="p2Dsd"></div>
+        </div>
+        <div class="gap"></div>
+        <div class="tc tb">* * * POIDS NET * * *</div>
+        <div class="gaps"></div>
+        <div class="tc"><input class="f net" id="poidsNet"> kg</div>
+      </div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="card">
+      <p class="lbl">Enregistrer</p>
+      <label class="fld-lbl">Nom du fichier</label>
+      <div class="fname">
+        <input id="filename" value="9848" placeholder="9848">
+        <span>.pdf</span>
+      </div>
+      <button class="primary" onclick="generate()">⬇ Enregistrer sous PDF</button>
+      <button class="ghost" onclick="resetAll()">↺ Réinitialiser</button>
+      <div class="ok" id="msg"></div>
+      <p class="tip">Format ticket : 80 mm de large (rouleau de caisse). La hauteur s'adapte au contenu. Le texte du PDF est net et sélectionnable.</p>
+    </div>
+  </aside>
+</main>
+
+<script>
+  const DEFAULTS = {
+    nPesee:"904212", date:"13/08/2026", heP1:"13:43", heP2:"15:04",
+    badge:"8118", nCamion:"DX-668-GY", client:"7 BOVO", zone:"Aucune",
+    provenance:"85961 ASF AIRE TRIBAULOU CAHORS", produit:"1 VIDANGE",
+    fPoids:"33 950", fDsd:"0", p2Poids:"22 950", p2Dsd:"0", poidsNet:"10 000"
+  };
+  const KEYS = Object.keys(DEFAULTS);
+
+  function autosize(el){
+    const min = el.classList.contains('net') ? 5 : 2;
+    el.style.width = (Math.max(el.value.length, min) + 1) + 'ch';
+  }
+  function setAll(vals){
+    KEYS.forEach(k => { const el=document.getElementById(k); el.value=vals[k]; autosize(el); });
+  }
+  function resetAll(){ setAll(DEFAULTS); document.getElementById('filename').value='9848'; msg(''); }
+  function msg(t){ document.getElementById('msg').textContent=t; }
+
+  KEYS.forEach(k => {
+    const el=document.getElementById(k);
+    el.addEventListener('input', ()=>autosize(el));
+  });
+  setAll(DEFAULTS);
+
+  function data(){
+    const d={}; KEYS.forEach(k=> d[k]=document.getElementById(k).value); return d;
+  }
+
+  function draw(doc, d){
+    const W=80, L=5, RM=75;
+    let y=9;
+    const center=(t,fs,bold)=>{ doc.setFontSize(fs); doc.setFont('courier',bold?'bold':'normal'); const w=doc.getTextWidth(t); doc.text(t,(W-w)/2,y); };
+    const two=(lt,rt,fs)=>{ doc.setFontSize(fs); doc.setFont('courier','normal'); doc.text(lt,L,y); const w=doc.getTextWidth(rt); doc.text(rt,RM-w,y); };
+
+    center('* * *  ASTEO  * * *',9,true); y+=6.5;
+    center('51 Chemin de Chantelle',9,false); y+=4;
+    center('CS 82341',9,false); y+=4;
+    center('31021 TOULOUSE CEDEX .',9,false); y+=7;
+    two('N Pesee : '+d.nPesee,'Date '+d.date,9); y+=5;
+    center('He P1 '+d.heP1+'      He P2 '+d.heP2,9,false); y+=5;
+    two('Badge : '+d.badge,'N Camion : '+d.nCamion,9); y+=7;
+    doc.setFontSize(9); doc.setFont('courier','normal'); doc.text('Client : '+d.client, 14, y); y+=4.5;
+    center('Zone : '+d.zone,9,false); y+=7;
+    doc.setFontSize(8); doc.setFont('courier','normal');
+    doc.text('Fiche', L, y);
+    doc.text('Provenance', 22, y);
+    doc.text('Adresse', 46, y);
+    { const t='Ville'; const w=doc.getTextWidth(t); doc.text(t, RM-w, y); }
+    y+=5;
+    center(d.provenance,9,false); y+=7;
+    center('* * * PRODUIT * * *',9,true); y+=5;
+    center(d.produit,9,false); y+=8;
+    const bx=13;
+    doc.setFontSize(10); doc.setFont('courier','bold');
+    doc.text('F :', bx, y); doc.text(d.fPoids+' kg', bx+9, y);
+    doc.setFontSize(9); doc.setFont('courier','normal'); doc.text('DSD : '+d.fDsd, bx+35, y);
+    y+=5;
+    doc.setFontSize(10); doc.setFont('courier','bold');
+    doc.text('P2:', bx, y); doc.text(d.p2Poids+' kg', bx+9, y);
+    doc.setFontSize(9); doc.setFont('courier','normal'); doc.text('DSD : '+d.p2Dsd, bx+35, y);
+    y+=8.5;
+    center('* * * POIDS NET * * *',9,true); y+=8;
+    center(d.poidsNet+' kg',13,true); y+=5;
+    return y;
+  }
+
+  function generate(){
+    try{
+      const { jsPDF } = window.jspdf;
+      const d = data();
+      // 1ère passe : mesurer la hauteur
+      const tmp = new jsPDF({ unit:'mm', format:[80, 300] });
+      const endY = draw(tmp, d);
+      // 2ème passe : document à la bonne hauteur
+      const doc = new jsPDF({ unit:'mm', format:[80, Math.ceil(endY)+4] });
+      draw(doc, d);
+      let name = (document.getElementById('filename').value || 'ticket').trim().replace(/[^\w\-]/g,'_') || 'ticket';
+      doc.save(name + '.pdf');
+      msg('✓ PDF enregistré : ' + name + '.pdf');
+    }catch(e){
+      console.error(e);
+      msg('Erreur : ' + (e && e.message ? e.message : e));
+    }
+  }
+</script>
+</body>
+</html>

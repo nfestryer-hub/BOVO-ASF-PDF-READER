@@ -2,7 +2,7 @@ import React, { useRef, useState } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import { toast } from "sonner";
-import { Download, RotateCcw, FileText } from "lucide-react";
+import { Download, RotateCcw, FileText, ExternalLink } from "lucide-react";
 import TicketDoc from "@/components/TicketDoc";
 
 const DEFAULTS = {
@@ -159,6 +159,23 @@ export default function TicketMaker() {
               <RotateCcw size={16} />
               Réinitialiser
             </button>
+
+            <div className="my-4 border-t border-slate-200" />
+
+            <p className="mb-2 text-sm font-medium text-slate-700">
+              Logiciel autonome (hors ligne)
+            </p>
+            <button
+              data-testid="open-standalone-button"
+              onClick={() => window.open("/logiciel-ticket-asteo.html", "_blank")}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+            >
+              <ExternalLink size={16} />
+              Ouvrir le logiciel (.html)
+            </button>
+            <p className="mt-2 text-xs leading-relaxed text-slate-400">
+              Ouvre le logiciel dans un nouvel onglet. Là, l'export PDF se télécharge directement. Faites <b>Ctrl/Cmd + S</b> sur cette page pour enregistrer le fichier .html sur votre ordinateur et l'utiliser hors ligne.
+            </p>
 
             <p className="mt-4 text-xs leading-relaxed text-slate-400">
               Format ticket : 80 mm de large (rouleau de caisse). La hauteur s'adapte automatiquement au contenu.
