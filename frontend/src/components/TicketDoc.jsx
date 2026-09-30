@@ -1,10 +1,5 @@
 import React, { forwardRef } from "react";
 
-const renderZeros = (v) =>
-  String(v ?? "")
-    .split(/(0)/)
-    .map((p, i) => (p === "0" ? <span key={i} className="tk-zero">0</span> : p || null));
-
 const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
   const Field = ({ k, min = 2, blue = false, className = "" }) => {
     const v = data[k] ?? "";
@@ -14,7 +9,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
           className={`tk-val ${className}`}
           style={blue ? { color: "#1d4ed8" } : undefined}
         >
-          {renderZeros(v)}
+          {v}
         </span>
       );
     }
@@ -41,7 +36,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
 
       <div className="tk-center">51 Chemin de Chantelle</div>
       <div className="tk-center">CS 82341</div>
-      <div className="tk-center">{renderZeros("31021 TOULOUSE CEDEX 2")}</div>
+      <div className="tk-center">31021 TOULOUSE CEDEX 2</div>
 
       <div className="tk-gap" />
 
@@ -98,12 +93,12 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
 
       <div className="tk-weights">
         <div className="tk-wrow">
-          <span className="tk-wlabel tk-mx">P1:</span>
+          <span className="tk-wlabel tk-mx"><span className="tk-wp">P</span>1:</span>
           <Field k="fPoids" min={6} className="tk-mx" /> <span className="tk-mx">kg</span>
           <span className="tk-dsd">DSD :</span> <Field k="fDsd" min={1} />
         </div>
         <div className="tk-wrow">
-          <span className="tk-wlabel tk-mx">P2:</span>
+          <span className="tk-wlabel tk-mx"><span className="tk-wp">P</span>2:</span>
           <Field k="p2Poids" min={6} className="tk-mx" /> <span className="tk-mx">kg</span>
           <span className="tk-dsd">DSD :</span> <Field k="p2Dsd" min={1} />
         </div>

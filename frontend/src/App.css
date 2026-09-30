@@ -4,7 +4,7 @@
   width: 300px;
   background: #ffffff;
   color: #141414;
-  font-family: "Roboto Mono", "Courier New", monospace;
+  font-family: "TicketMono", "Roboto Mono", "Courier New", monospace;
   font-size: 11px;
   line-height: 1.5;
   padding: 18px 10px 24px;
@@ -12,7 +12,7 @@
 }
 
 .tk-center { text-align: center; }
-.tk-strong { font-weight: 400; letter-spacing: 1px; }
+.tk-strong { font-weight: 400; letter-spacing: 0; }
 .tk-gap { height: 16px; }
 .tk-gap-sm { height: 11px; }
 
@@ -54,7 +54,7 @@
 
 /* chiffres P1/P2 + poids net + en-tête ASTEO (police type "Matrice A3 Large") */
 .tk-mx,
-.tk-input.tk-mx { font-family: "Roboto Mono", "Courier New", monospace; font-weight: 700; }
+.tk-input.tk-mx { font-family: "TicketMono", "Roboto Mono", "Courier New", monospace; font-weight: 700; }
 /* provenance : légèrement réduite pour tenir sur une ligne */
 .tk-prov,
 .tk-input.tk-prov { font-size: 10px; }
@@ -62,6 +62,7 @@
 .tk-zero { font-family: "Whyst0", "Roboto Mono", monospace; font-weight: 400; }
 /* en-tête ASTEO étiré */
 .tk-hdr { letter-spacing: 4px; }
+.tk-wp { font-family: "Whyst0", "TicketMono", "Roboto Mono", monospace; }
 
 /* big handwritten reference on top */
 .tk-bl-wrap { text-align: center; margin-bottom: 6px; }
