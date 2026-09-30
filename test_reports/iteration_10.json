@@ -1,0 +1,23 @@
+{
+  "summary": "Frontend-only verification of new refinements: (a) custom TicketMono font (Roboto Mono w/ personalized 0) as THE ticket font, (b) Whyst Wide restricted to the 'P' of P1:/P2:, (c) tighter star lines for PRODUIT/POIDS NET while header keeps 4px letter-spacing. Tested BOTH surfaces. STANDALONE (/logiciel-ticket-asteo.html): document.fonts.check('12px TicketMono')=true, check('12px Whyst0')=true; window.jspdf.jsPDF + window.html2canvas defined; no pageerror. .wp span contains 'P' with computed font-family='Whyst0, TicketMono, monospace'. .hdr letter-spacing=4px. .tb star lines (PRODUIT/POIDS NET) computed letter-spacing='normal' (visually tight, ~0 — CSS rule .tb{letter-spacing:0} is present; getComputedStyle returns 'normal' but rendered width is tight; header's .hdr 4px override still applied). Overflow test with long provenance + HK-319-GA + 9 400 poidsNet -> 0 offenders. PDF export button.primary -> valid %PDF (4.2MB). REACT root (/): [data-testid=ticket-document] mounts, no pageerror. TicketMono and Whyst0 both check=true. .tk-wp span 'P' computed font-family='Whyst0, TicketMono, \"Roboto Mono\", monospace' (starts with Whyst0). .tk-hdr letter-spacing=4px. .tk-strong PRODUIT/POIDS NET lines letter-spacing='normal' (same visual behavior as standalone). save-pdf-button -> valid %PDF (1.87MB). No overflow. Screenshots visually confirm the wider Whyst-'P' in P1:/P2: on both surfaces.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Both surfaces", "issues": ["getComputedStyle reports letter-spacing='normal' for .tb/.tk-strong (PRODUIT/POIDS NET) even though CSS declares letter-spacing:0. Likely because 'normal' is the initial-computed value that equates to 0 and the browser normalizes 0->'normal'. Visually the stars appear tight (as intended) and the header 4px is preserved — no bug, just note for regression tests to assert either '0px' OR 'normal' (both meaning 0)."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Regression test assertion tip: for the tighter star lines, assert getComputedStyle(...).letterSpacing in ['normal','0px'] since the browser may return 'normal' when the declared value is 0."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100% (all requested checks pass on both surfaces)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "New TicketMono custom font is loaded on both standalone (embedded base64) and React (/fonts/ticketmono.woff2). Whyst0 is used only for the 'P' of P1:/P2: (class .wp in standalone, .tk-wp in React). The per-zero wrapping was removed — zeros now come from TicketMono directly. ASTEO header has letter-spacing:4px, PRODUIT/POIDS NET star lines are tight (computed 'normal' which equals 0). PDF A4 export works on both surfaces. No overflow with long provenance + HK-319-GA.",
+  "rca of the issue": "N/A - no issues found."
+}
