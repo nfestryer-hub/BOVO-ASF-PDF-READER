@@ -30,7 +30,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
 
   return (
     <div className="ticket" ref={ref} data-testid="ticket-document">
-      <div className="tk-center tk-strong">***&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ASTEO&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;***</div>
+      <div className="tk-center tk-strong tk-mx">***&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ASTEO&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;***</div>
 
       <div className="tk-gap" />
 
@@ -76,7 +76,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
       <div className="tk-gap-sm" />
 
       <div className="tk-center">
-        <Field k="provenance" min={20} />
+        <Field k="provenance" min={20} className="tk-prov" />
       </div>
 
       <div className="tk-gap" />
@@ -94,13 +94,13 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
       <div className="tk-weights">
         <div className="tk-wrow">
           <span className="tk-wlabel">P1:</span>
-          <Field k="fPoids" min={6} /> <span>kg</span>
-          <span className="tk-dsd">DSD :</span> <Field k="fDsd" min={1} />
+          <Field k="fPoids" min={6} className="tk-mx" /> <span>kg</span>
+          <span className="tk-dsd">DSD :</span> <Field k="fDsd" min={1} className="tk-mx" />
         </div>
         <div className="tk-wrow">
           <span className="tk-wlabel">P2:</span>
-          <Field k="p2Poids" min={6} /> <span>kg</span>
-          <span className="tk-dsd">DSD :</span> <Field k="p2Dsd" min={1} />
+          <Field k="p2Poids" min={6} className="tk-mx" /> <span>kg</span>
+          <span className="tk-dsd">DSD :</span> <Field k="p2Dsd" min={1} className="tk-mx" />
         </div>
       </div>
 
@@ -111,7 +111,7 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
       <div className="tk-gap-sm" />
 
       <div className="tk-center">
-        <Field k="poidsNet" min={5} className={editable ? "tk-net-input" : "tk-net-num"} /> kg
+        <Field k="poidsNet" min={5} className={`tk-mx ${editable ? "tk-net-input" : "tk-net-num"}`} /> kg
       </div>
     </div>
   );

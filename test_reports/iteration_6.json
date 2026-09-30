@@ -1,0 +1,32 @@
+{
+  "summary": "Retested the two CRITICAL requirements (no-overflow + embedded PT Mono) plus PDF export. FINDINGS: (A) STANDALONE /logiciel-ticket-asteo.html: font (TicketMono) loads offline, jspdf+html2canvas defined, PDFs valid (single %PDF 1p, multi %PDF 2+ pages A4). HOWEVER, the no-overflow requirement FAILS: with the mandated long provenance '89638 YEO FRAIS 23 AV DE FONDEYRE TOULOUSE' the #provenance INPUT extends ~16px past the #ticket right edge (input right=694 vs ticket right=678). Cause: autosize() sets width=(chars+1)ch = 43ch, which at 11px PT Mono (~6.6px/ch) yields ~284px, exceeding the 280px inner width of the 300px-wide ticket (padding 10px each side). (B) REACT APP is COMPLETELY BROKEN - compile error. Webpack cannot resolve absolute font URLs in src/App.css: 'Module not found: Can't resolve /fonts/ptmono-latin-ext.woff2 in /app/frontend/src' (lines 7 and 15 of App.css). The dev-error overlay is shown instead of the app; [data-testid=ticket-document] never mounts, so React overflow test / PDF export test cannot even run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "logiciel-ticket-asteo.html #provenance input", "issue": "Autosized input overflows #ticket right edge by ~16px when provenance='89638 YEO FRAIS 23 AV DE FONDEYRE TOULOUSE'. Ticket right=678, input right=694. Violates the mandatory 'no descendant of #ticket may exceed its right edge' rule.", "selector": "#provenance", "priority": "CRITICAL"},
+      {"component": "React App.css @font-face", "issue": "url(\"/fonts/ptmono-latin.woff2\") and url(\"/fonts/ptmono-latin-ext.woff2\") fail to compile. CRA/webpack's css-loader tries to resolve them as modules and errors 'Module not found: Can't resolve /fonts/ptmono-latin-ext.woff2 in /app/frontend/src'. Entire React app crashes at compile time - overlay shows 'Compiled with problems' and the app never renders.", "selector": "src/App.css lines 7 & 15", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [
+      {"flow": "React ticket render + PDF export", "issue": "Cannot be executed - React app fails to compile due to font URL webpack resolution error", "affected_selectors": ["[data-testid=\"ticket-document\"]", "[data-testid=\"save-pdf-button\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "STANDALONE: Cap the autosize width for #provenance (and other long fields) so it never exceeds the ticket inner width. Options: (a) special-case provenance with max-width: 100% and word-break/wrap, (b) clamp autosize with Math.min(chars+1, MAX_CH) where MAX_CH fits the ticket width, (c) reduce font-size for provenance line, or (d) shrink container padding. The requirement is strictly: every descendant of #ticket must have getBoundingClientRect().right <= ticket.right + 1 for the specified long provenance.",
+    "REACT: Fix font URL resolution. CRA's css-loader tries to resolve absolute URLs. Recommended fixes: (1) move the @font-face into public/index.html as a <style> block using %PUBLIC_URL%/fonts/ptmono-latin.woff2, or (2) place fonts in src/ and import via import '../fonts/...' (but PT Mono binaries live in public/fonts), or (3) configure css-loader with url: (url)=>!url.startsWith('/'), or (4) simplest: create /app/frontend/src/fonts.css with @font-face using imported URLs via JS: use `new FontFace('TicketMono', 'url('+process.env.PUBLIC_URL+'/fonts/ptmono-latin.woff2)')` in index.js. Verify document.fonts.check('11px TicketMono')===true and confirm /fonts/ptmono-latin.woff2 and /fonts/ptmono-latin-ext.woff2 return 200 (they should be served by the dev server since they exist in public/fonts).",
+    "After both fixes, re-run: (i) fill #provenance with the long string on standalone and confirm zero offenders; (ii) load React app, fill field-provenance with long string, confirm zero offenders on [data-testid=\"ticket-document\"], click save-pdf-button, verify %PDF + A4 MediaBox 595x842."
+  ],
+  "critical_code_review_comments": [
+    "src/App.css uses url('/fonts/...') which is not portable across CRA/webpack builds. Absolute-URL font references belong in public/index.html, not in a bundled CSS.",
+    "logiciel-ticket-asteo.html autosize() uses raw character count in ch units with no upper bound; any field longer than the inner ticket width will always overflow. Add a hard cap tied to ticket inner width.",
+    "The ticket layout for provenance is a single centered line; if the goal is fit-within-ticket, provenance should be allowed to wrap (white-space: normal) or shrink-to-fit, not a monospace-width input."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "40% (PDF export + libs OK, but both critical no-overflow and React-render requirements FAIL)"},
+  "seed_data_creation": "None",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Standalone URL: <REACT_APP_BACKEND_URL>/logiciel-ticket-asteo.html. To verify overflow: fill #provenance with '89638 YEO FRAIS 23 AV DE FONDEYRE TOULOUSE' then compare every descendant of #ticket's getBoundingClientRect().right to ticket.right (tolerance 1). React root at REACT_APP_BACKEND_URL; currently blocked by webpack compile error until App.css @font-face URLs are fixed. Fonts DO exist at /fonts/ptmono-latin.woff2 and /fonts/ptmono-latin-ext.woff2 (public dir).",
+  "rca of the issue": "Standalone overflow: autosize(el) sets width=(el.value.length+1)+'ch' without bounding to the ticket's inner content width; the 42-char long provenance therefore requires ~43ch ~= 284px which exceeds the 280px inner width. React compile error: CRA's css-loader treats url('/fonts/...') references in bundled CSS as module imports; since /fonts is only present in public/, webpack cannot resolve them at build time. Fix @font-face by moving to public/index.html or by using PUBLIC_URL/FontFace API from JS."
+}
