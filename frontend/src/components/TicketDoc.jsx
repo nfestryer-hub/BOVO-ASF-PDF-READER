@@ -30,22 +30,6 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
 
   return (
     <div className="ticket" ref={ref} data-testid="ticket-document">
-      {/* Référence manuscrite */}
-      <div className="tk-bl-wrap">
-        {editable ? (
-          <input
-            data-testid="field-bl"
-            className="tk-bl-input"
-            value={data.bl ?? ""}
-            spellCheck={false}
-            style={{ width: `${(Math.max((data.bl || "").length, 4) + 2) * 0.6}em` }}
-            onChange={(e) => onChange && onChange("bl", e.target.value)}
-          />
-        ) : (
-          <span className="tk-bl-val">{data.bl}</span>
-        )}
-      </div>
-
       <div className="tk-center tk-strong">* * *&nbsp;&nbsp;ASTEO&nbsp;&nbsp;* * *</div>
 
       <div className="tk-gap" />
