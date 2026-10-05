@@ -55,3 +55,10 @@ du fichier est une suite de chiffres saisie manuellement.
 - Police des zones = TicketMono (monospace déjà utilisée). Zones blanches invisibles au rendu (fusion parfaite avec le scan).
 - Fichiers : `TicketDoc.jsx` réécrit (fond + inputs absolus), `TicketMaker.jsx` (DEFAULTS=valeurs du scan, textes mis à jour, chargement polices), `App.css` (focus zones), standalone `logiciel-ticket-asteo.html` (CSS `.scanticket/.f`, markup inputs positionnés, DEFAULTS, buildNodeFromData copie style+classe, autosize no-op).
 - Machinerie PDF/impression/multi-tickets A4 inchangée (opère sur le nœud `#ticket`). Vérifié : édition OK, html2canvas rend le clone sans erreur, jsPDF présent, rendu export = aperçu.
+
+## MAJ 2026-06 (05/06) — Netteté, noir, gras poids, zones élargies
+- Bug utilisateur : case « Zone : Aucune » trop petite → texte coupé au rendu. CORRIGÉ (field-zone élargi) + vérifié par testing_agent (iteration_11 : « bug FIXED »).
+- Fond régénéré plus net et noir : rendu PDF 6x, redressement, binarisation + courbe de contraste (gamma 1.35) + masque de netteté (unsharp), nettoyage poussières → `clean_v2.png` (1231×2039). Réinjecté dans `ticketBg.js` et le standalone.
+- Texte tapé en NOIR pur (#000). Zones poids (fPoids, p2Poids, poidsNet) en GRAS (font-weight 700) pour matcher les gros chiffres arrondis du scan ; petites valeurs en TicketMono fin (match des libellés scannés).
+- Ajustements zones (évite tout rognage) : heP1/heP2 15%, zone 28%, padding 0 1px.
+- Reste ouvert : si l'utilisateur veut une police free encore plus proche des gros chiffres arrondis du scan, prévoir d'embarquer une police dédiée en base64 (contrainte offline).

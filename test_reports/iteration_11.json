@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend-only test of refactored scanned-background ticket + white editable zones on BOTH surfaces (React / and standalone /logiciel-ticket-asteo.html). Ticket mounts, 12 editable inputs are present with correct defaults, live edits reflect in state, PDF export runs without JS errors on both surfaces, html2canvas renders #ticket (330x545) and window.jspdf.jsPDF is defined on standalone. Reset button restores defaults. Default 'Aucune' in field-zone is NOT truncated (scrollW=79 clientW=79). Long provenance '89638 YEO FRAIS 23 AV DE FONDEYRE TOULOUSE' fits (scrollW=298 clientW=297). HK-319-GA, 7 BOVO, 1 VIDANGE, 29 100 / 19 700 / 9 400 all OK. No console/pageerror on either surface. However two MINOR default-value truncations detected and one typed-value overflow.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TicketDoc field-heP1/field-heP2", "issue": "Default values '14:33' and '15:19' overflow their input by 2px (scrollWidth=44, clientWidth=42). Content is hidden via overflow:hidden but the last pixel of ':XX' is clipped. Cause: baseStyle has padding '0 2px' which steals 4px of a ~46px wide box (w=12.8% of 330px ticket). Fix: either reduce padding to 0, or widen heP1/heP2 from 12.8% to ~15%.", "selector": "[data-testid=\"field-heP1\"], [data-testid=\"field-heP2\"]", "priority": "LOW"},
+      {"component": "TicketDoc field-zone", "issue": "Typing a reasonable longer value such as 'Zone Nord 12' overflows the field (scrollW=100, clientW=79). It stays within the ticket (overflow:hidden), so no layout break, but the suffix '12' is clipped in the rendered ticket AND in the html2canvas/PDF clone (same style). Default 'Aucune' and 'Zone Nord' alone fit fine. Consider widening field-zone further (currently w=24%) or lowering fs.", "selector": "[data-testid=\"field-zone\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "OPTIONAL: Reduce padding or widen field-heP1/field-heP2 so the default '14:33' / '15:19' are not clipped by 2px.",
+    "OPTIONAL: Widen field-zone or auto-shrink fontSize so user-typed values like 'Zone Nord 12' are fully visible (default 'Aucune' is OK)."
+  ],
+  "critical_code_review_comments": [
+    "TicketDoc.jsx: all editable inputs share padding '0 2px' which reduces usable width by 4px on every zone, causing the minor heP1/heP2 clipping even with default values. Removing padding (and keeping textAlign) would eliminate most borderline truncation.",
+    "No sanitization/length cap on inputs; if the user types very long strings into field-zone or field-produit, overflow:hidden masks it but the PDF export silently drops text. Consider showing a visual warning when scrollWidth > clientWidth."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "95% (all requested checks pass except minor 2px clip on heP1/heP2 and typed overflow on field-zone)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "App is 100% frontend. React root uses TicketDoc.jsx with 12 absolute-positioned inputs over a scanned base64 background (TICKET_BG, 1231x2039 at display 330px). Standalone /logiciel-ticket-asteo.html mirrors structure; window.jspdf.jsPDF and window.html2canvas are present and functional. Save-PDF buttons work without JS errors on both surfaces. Only minor truncations remain (see ui_bugs).",
+  "rca of the issue": "Reported bug 'Zone : Aucune trop petite -> texte coupé' is FIXED (scrollW==clientW=79). Remaining minor clips are due to shared 2px horizontal padding in TicketDoc baseStyle shrinking the 42-46px heP1/heP2 boxes."
+}
