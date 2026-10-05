@@ -6,22 +6,18 @@ import { Download, RotateCcw, FileText, ExternalLink } from "lucide-react";
 import TicketDoc from "@/components/TicketDoc";
 
 const DEFAULTS = {
-  bl: "BL 9848",
-  nPesee: "904212",
-  date: "13/08/2026",
-  heP1: "13:43",
-  heP2: "15:04",
-  barige: "8118",
-  nCamion: "DX-668-GY",
+  nPesee: "904919",
+  date: "23/09/2026",
+  heP1: "14:33",
+  heP2: "15:19",
+  nCamion: "HK-319-GA",
   client: "7 BOVO",
   zone: "Aucune",
-  provenance: "85961 ASF AIRE TRIBAULOU CAHORS",
+  provenance: "89638 YEO FRAIS 23 AV DE FONDEYRE TOULOUSE",
   produit: "1 VIDANGE",
-  fPoids: "33 950",
-  fDsd: "0",
-  p2Poids: "22 950",
-  p2Dsd: "0",
-  poidsNet: "10 000",
+  fPoids: "29 100",
+  p2Poids: "19 700",
+  poidsNet: "9 400",
 };
 
 export default function TicketMaker() {
@@ -45,9 +41,8 @@ export default function TicketMaker() {
         try {
           await document.fonts.ready;
           await Promise.all([
-            document.fonts.load('12px Whyst0'),
-            document.fonts.load('11px "Roboto Mono"'),
-            document.fonts.load('700 11px "Roboto Mono"'),
+            document.fonts.load('13px TicketMono'),
+            document.fonts.load('19px TicketMono'),
           ]);
         } catch (_) {}
       }
@@ -110,7 +105,7 @@ export default function TicketMaker() {
               Générateur de tickets de pesée
             </h1>
             <p className="text-xs text-slate-500">
-              Remplissez les champs surlignés, puis enregistrez au format PDF
+              Modifiez les zones blanches du ticket, puis enregistrez au format PDF
             </p>
           </div>
         </div>
@@ -119,8 +114,8 @@ export default function TicketMaker() {
       <main className="mx-auto grid max-w-5xl gap-6 px-5 py-8 lg:grid-cols-[1fr_320px]">
         {/* Ticket éditable */}
         <section className="flex flex-col items-center">
-          <div className="mb-4 self-stretch rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-800">
-            Les champs <span className="rounded bg-yellow-300 px-1 font-semibold">surlignés en jaune</span> sont modifiables. Le reste de la mise en page reste fixe.
+          <div className="mb-4 self-stretch rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-center text-sm text-blue-800">
+            Le fond reprend le vrai ticket scanné. Seules les <span className="rounded bg-white px-1 font-semibold ring-1 ring-blue-300">zones blanches</span> sont modifiables.
           </div>
           <div
             className="rounded-sm bg-white shadow-xl"

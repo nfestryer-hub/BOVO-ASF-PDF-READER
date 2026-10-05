@@ -123,3 +123,7 @@
   font-weight: 400;
   min-width: 5ch;
 }
+
+/* ---- Ticket scanné : zones blanches éditables ---- */
+.tk-field:focus { box-shadow: 0 0 0 2px #2563eb !important; }
+.tk-field::selection { background: #bfdbfe; }

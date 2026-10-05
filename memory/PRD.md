@@ -46,3 +46,12 @@ du fichier est une suite de chiffres saisie manuellement.
 
 ## Prochaines actions
 - Selon retour utilisateur sur la fidélité exacte de la mise en page.
+
+## MAJ 2026-06 (05/06) — Refonte « fond scanné + zones blanches »
+- Changement majeur demandé par l'utilisateur : repartir du vrai ticket scanné (PDF fourni) comme FOND FIXE et ne rendre modifiables que des ZONES BLANCHES posées sur les valeurs variables. Remplace entièrement l'ancien générateur « texte reconstruit ».
+- Pipeline image : extraction du scan depuis le PDF, redressement (profil de projection), binarisation, suppression des poussières, recadrage auto → fond propre `clean_final4.png` (1025×1693).
+- Fond embarqué en base64 : React dans `/app/frontend/src/ticketBg.js` (export TICKET_BG/W/H) ; standalone en `url(data:image/png;base64,...)` inline (offline, ~896 KB).
+- 12 zones éditables (left/top/width % + height/font px) : nPesee, date, heP1, heP2, nCamion, client, zone, provenance, produit, fPoids, p2Poids, poidsNet. NON éditables (dans le fond) : Badge, DSD, libellés, en-tête, adresse, « kg ».
+- Police des zones = TicketMono (monospace déjà utilisée). Zones blanches invisibles au rendu (fusion parfaite avec le scan).
+- Fichiers : `TicketDoc.jsx` réécrit (fond + inputs absolus), `TicketMaker.jsx` (DEFAULTS=valeurs du scan, textes mis à jour, chargement polices), `App.css` (focus zones), standalone `logiciel-ticket-asteo.html` (CSS `.scanticket/.f`, markup inputs positionnés, DEFAULTS, buildNodeFromData copie style+classe, autosize no-op).
+- Machinerie PDF/impression/multi-tickets A4 inchangée (opère sur le nœud `#ticket`). Vérifié : édition OK, html2canvas rend le clone sans erreur, jsPDF présent, rendu export = aperçu.

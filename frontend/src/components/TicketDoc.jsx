@@ -1,118 +1,86 @@
 import React, { forwardRef } from "react";
+import { TICKET_BG, TICKET_W, TICKET_H } from "@/ticketBg";
+
+const TICKET_PX = 330;
+const HEIGHT_PX = Math.round(TICKET_PX * (TICKET_H / TICKET_W));
+
+// Zones blanches éditables, positionnées sur le scan (left/top/width en %, height/fontSize en px)
+export const FIELDS = [
+  { id: "nPesee", left: 34.3, top: 19.6, w: 15.8, h: 19, fs: 13, align: "center" },
+  { id: "date", left: 67.8, top: 19.6, w: 24.0, h: 19, fs: 12, align: "center" },
+  { id: "heP1", left: 36.0, top: 25.6, w: 12.8, h: 18, fs: 13, align: "center" },
+  { id: "heP2", left: 69.2, top: 25.6, w: 12.8, h: 18, fs: 13, align: "center" },
+  { id: "nCamion", left: 58.5, top: 31.6, w: 21.5, h: 19, fs: 12, align: "center" },
+  { id: "client", left: 28.7, top: 37.6, w: 22.0, h: 18, fs: 13, align: "left" },
+  { id: "zone", left: 52.7, top: 40.7, w: 14.8, h: 17, fs: 14, align: "center" },
+  { id: "provenance", left: 7.8, top: 55.7, w: 90.0, h: 18, fs: 11, align: "center" },
+  { id: "produit", left: 32.0, top: 67.8, w: 26.0, h: 18, fs: 13, align: "center" },
+  { id: "fPoids", left: 19.5, top: 76.6, w: 36.0, h: 23, fs: 19, align: "left" },
+  { id: "p2Poids", left: 19.5, top: 82.7, w: 36.0, h: 23, fs: 19, align: "left" },
+  { id: "poidsNet", left: 32.2, top: 94.6, w: 24.8, h: 23, fs: 19, align: "center" },
+];
 
 const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
-  const Field = ({ k, min = 2, blue = false, className = "" }) => {
-    const v = data[k] ?? "";
-    if (!editable) {
-      return (
-        <span
-          className={`tk-val ${className}`}
-          style={blue ? { color: "#1d4ed8" } : undefined}
-        >
-          {v}
-        </span>
-      );
-    }
-    return (
-      <input
-        data-testid={`field-${k}`}
-        className={`tk-input ${className}`}
-        style={{
-          width: `${Math.max((v || "").length, min) + 1}ch`,
-          ...(blue ? { color: "#1d4ed8" } : {}),
-        }}
-        value={v}
-        spellCheck={false}
-        onChange={(e) => onChange && onChange(k, e.target.value)}
-      />
-    );
-  };
+  const baseStyle = (f) => ({
+    position: "absolute",
+    left: `${f.left}%`,
+    top: `${f.top}%`,
+    width: `${f.w}%`,
+    height: `${f.h}px`,
+    lineHeight: `${f.h}px`,
+    fontSize: `${f.fs}px`,
+    textAlign: f.align,
+    fontFamily: '"TicketMono", "Roboto Mono", "Courier New", monospace',
+    color: "#141414",
+    background: "#ffffff",
+    border: "none",
+    outline: "none",
+    padding: "0 2px",
+    margin: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    boxSizing: "border-box",
+  });
 
   return (
-    <div className="ticket" ref={ref} data-testid="ticket-document">
-      <div className="tk-center tk-strong tk-mx tk-hdr">***&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;ASTEO&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;***</div>
-
-      <div className="tk-gap" />
-
-      <div className="tk-center">51 Chemin de Chantelle</div>
-      <div className="tk-center">CS 82341</div>
-      <div className="tk-center">31021 TOULOUSE CEDEX 2</div>
-
-      <div className="tk-gap" />
-
-      <div className="tk-two">
-        <span className="tk-seg">N Pesee : <Field k="nPesee" min={6} /></span>
-        <span className="tk-seg">Date <Field k="date" min={8} /></span>
-      </div>
-
-      <div className="tk-gap-sm" />
-
-      <div className="tk-inline">
-        <span className="tk-seg">He P1 <Field k="heP1" min={5} /></span>
-        <span className="tk-seg">He P2 <Field k="heP2" min={5} /></span>
-      </div>
-
-      <div className="tk-gap-sm" />
-
-      <div className="tk-two">
-        <span className="tk-seg">Badge : <Field k="barige" min={4} /></span>
-        <span className="tk-seg">N Camion : <Field k="nCamion" min={7} /></span>
-      </div>
-
-      <div className="tk-gap" />
-
-      <div className="tk-client">Client : <Field k="client" min={5} /></div>
-      <div className="tk-zone">Zone : <Field k="zone" min={5} /></div>
-
-      <div className="tk-gap" />
-
-      <div className="tk-fiche">
-        <span>Fiche</span>
-        <span>Provenance</span>
-        <span>Adresse</span>
-        <span>Ville</span>
-      </div>
-
-      <div className="tk-gap-sm" />
-
-      <div className="tk-center">
-        <Field k="provenance" min={20} className="tk-prov" />
-      </div>
-
-      <div className="tk-gap" />
-
-      <div className="tk-center tk-strong">* * * PRODUIT * * *</div>
-
-      <div className="tk-gap-sm" />
-
-      <div className="tk-center">
-        <Field k="produit" min={9} />
-      </div>
-
-      <div className="tk-gap" />
-
-      <div className="tk-weights">
-        <div className="tk-wrow">
-          <span className="tk-wlabel tk-mx"><span className="tk-wp">P</span>1:</span>
-          <Field k="fPoids" min={6} className="tk-mx" /> <span className="tk-mx">kg</span>
-          <span className="tk-dsd">DSD :</span> <Field k="fDsd" min={1} />
-        </div>
-        <div className="tk-wrow">
-          <span className="tk-wlabel tk-mx"><span className="tk-wp">P</span>2:</span>
-          <Field k="p2Poids" min={6} className="tk-mx" /> <span className="tk-mx">kg</span>
-          <span className="tk-dsd">DSD :</span> <Field k="p2Dsd" min={1} />
-        </div>
-      </div>
-
-      <div className="tk-gap" />
-
-      <div className="tk-center tk-strong">* * * POIDS NET * * *</div>
-
-      <div className="tk-gap-sm" />
-
-      <div className="tk-center">
-        <Field k="poidsNet" min={5} className={`tk-mx ${editable ? "tk-net-input" : "tk-net-num"}`} /> kg
-      </div>
+    <div
+      className="scan-ticket"
+      ref={ref}
+      data-testid="ticket-document"
+      style={{
+        position: "relative",
+        width: `${TICKET_PX}px`,
+        height: `${HEIGHT_PX}px`,
+        backgroundImage: `url(${TICKET_BG})`,
+        backgroundRepeat: "no-repeat",
+        backgroundSize: "100% 100%",
+        backgroundColor: "#ffffff",
+      }}
+    >
+      {FIELDS.map((f) => {
+        const v = data[f.id] ?? "";
+        if (!editable) {
+          return (
+            <div key={f.id} style={baseStyle(f)}>
+              {v}
+            </div>
+          );
+        }
+        return (
+          <input
+            key={f.id}
+            data-testid={`field-${f.id}`}
+            className="tk-field"
+            spellCheck={false}
+            value={v}
+            onChange={(e) => onChange && onChange(f.id, e.target.value)}
+            style={{
+              ...baseStyle(f),
+              boxShadow: "inset 0 0 0 1px rgba(37,99,235,0.18)",
+            }}
+          />
+        );
+      })}
     </div>
   );
 });
