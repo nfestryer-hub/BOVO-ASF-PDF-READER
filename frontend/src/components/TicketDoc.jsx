@@ -15,9 +15,9 @@ export const FIELDS = [
   { id: "zone", left: 52.7, top: 40.7, w: 28.0, h: 17, fs: 13, align: "center" },
   { id: "provenance", left: 7.8, top: 55.7, w: 90.0, h: 18, fs: 11, align: "center" },
   { id: "produit", left: 32.0, top: 67.8, w: 26.0, h: 18, fs: 13, align: "center" },
-  { id: "fPoids", left: 19.5, top: 76.6, w: 36.0, h: 23, fs: 19, align: "left", bold: true },
-  { id: "p2Poids", left: 19.5, top: 82.7, w: 36.0, h: 23, fs: 19, align: "left", bold: true },
-  { id: "poidsNet", left: 32.2, top: 94.6, w: 24.8, h: 23, fs: 19, align: "center", bold: true },
+  { id: "fPoids", left: 19.5, top: 76.4, w: 36.0, h: 27, fs: 19, align: "left", bold: true },
+  { id: "p2Poids", left: 19.5, top: 82.5, w: 36.0, h: 27, fs: 19, align: "left", bold: true },
+  { id: "poidsNet", left: 32.2, top: 94.4, w: 24.8, h: 27, fs: 19, align: "center", bold: true },
 ];
 
 const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
