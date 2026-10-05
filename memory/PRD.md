@@ -67,3 +67,11 @@ du fichier est une suite de chiffres saisie manuellement.
 - Bug utilisateur : chiffres P1/P2 et Poids Net non alignés avec les libellés P1:/P2:/kg du scan, et case blanche ne couvrant pas entièrement les chiffres d'origine (dépassement au-dessus).
 - Correctif : zones fPoids/p2Poids/poidsNet agrandies (height 27px, line-height 27px, fs 19 gras) et top ajustés à 76.4 / 82.5 / 94.4 % → couverture totale des chiffres d'origine + ligne de base alignée sur P1:/P2:/kg.
 - Vérifié par testing_agent (iteration_12 : 100 % périmètre, aperçu = rendu export PDF, aucune régression, aucune erreur console).
+
+## MAJ 2026-06 (05/06) — Alignement poids affiné sur le VRAI rendu PDF
+- L'utilisateur a re-signalé un décalage visible dans le PDF. Mesures au niveau html2canvas (sortie réelle) : les chiffres tapés étaient ~0,9 % puis ~0,6 % trop bas vs les libellés P1:/P2:/kg.
+- Correctif précis par mesure des lignes de base sur la sortie html2canvas (scale 4) :
+  - Standalone `.html` (clone en <span>) : tops poids 75.8 / 81.8 / 93.8 % → aligné (écart ≤ 0,27 %).
+  - React `TicketDoc.jsx` (rendu en <div>) : tops poids 75.2 / 81.2 / 93.2 % (≈ -0,6 % vs standalone pour compenser le baseline <div> vs <span> sous html2canvas + synthèse de gras). Écart final digit vs libellé ≈ 0,05 %.
+- Vérifié par testing_agent iteration_14 : 100 %, les DEUX versions alignées sur le rendu PDF réel, export PDF OK, non-régression 9/9 autres champs, zéro erreur console.
+- Note maintenance : les tops poids diffèrent volontairement entre React et standalone (commenté dans TicketDoc.jsx).

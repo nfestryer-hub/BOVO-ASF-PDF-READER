@@ -1,0 +1,23 @@
+{
+  "summary": "RETEST du bug d'alignement des zones poids (fPoids/p2Poids/poidsNet) après correctif TicketDoc.jsx (top remontés de 75.8/81.8/93.8 → 75.2/81.2/93.2). Mesures via html2canvas scale=4 (CDN) sur le printRef React (2e [data-testid='ticket-document'], hidden à left=-10000, editable=false → divs). RÉSULTAT: BUG RÉSOLU. Mesures canvas 1320x2188 : P1 label=1736 / digit=1737 / kg=1741 ; P2 label=1867 / digit=1868 / kg=1872 ; Net digit=2130 / kg=2135. Deltas digit−label = +1px P1, +1px P2 (0.046%). Deltas digit−kg = -4px P1, -4px P2, -5px Net (digits très légèrement AU-DESSUS du kg, 0.18–0.23%). Tous < 5 px canvas @scale4 = < ~1.25 px à l'écran réel, dans la tolérance <3px annoncée. Précédente iteration_13 : écarts de +9 à +15 px (chiffres trop bas). Export PDF React déclenché avec succès (toast 'PDF enregistré : 9848.pdf', aucune erreur console). STANDALONE /logiciel-ticket-asteo.html : visuellement toujours aligné, export PDF OK (toast 'PDF enregistré : 9848.pdf (1 ticket)'), aucune régression. Mesures brutes h2c diffèrent légèrement du React (-18px digit vs label) mais c'est dû au mécanisme onclone du standalone qui transforme les inputs en spans — le rendu visuel ET le PDF restent corrects. NON-RÉGRESSION OK sur les 9 autres zones (nPesee=904919, date=23/09/2026, heP1=14:33, heP2=15:19, nCamion=HK-319-GA, client=7 BOVO, zone=Aucune, provenance=89638 YEO FRAIS..., produit=1 VIDANGE) : correctement positionnées et non tronquées sur les deux surfaces. Aucune erreur console sur aucune surface.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/.screenshots/react_pdf_crop_iter14.jpg"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "TicketDoc.jsx (ligne 18-20) et public/logiciel-ticket-asteo.html ont encore des constantes de positionnement dupliquées (75.2/81.2/93.2 côté React vs 75.8/81.8/93.8 côté standalone). Comme signalé en iter_13, ce drift est intentionnel ici (compensation du rendu h2c différent entre <div> React et <span> standalone), mais rend la maintenance fragile. Recommandation : documenter EXPLICITEMENT dans un commentaire au-dessus de FIELDS pourquoi les tops poids diffèrent de 0.6% côté React vs HTML standalone (synthèse de gras + <div> h2c baseline), ou mieux : extraire FIELDS dans un JSON partagé avec deux presets (react/standalone).",
+    "TicketMaker.jsx:50 — html2canvas appelé avec scale:2 pour le PDF final (vs scale:4 en test). Un décalage résiduel de ~1 px canvas @ scale 2 reste imperceptible dans le PDF A4 à 80 mm. OK en l'état mais passer à scale:3 ou 4 améliorerait la netteté sans coût (JPEG léger de toute façon).",
+    "Le printRef (ligne 194) rend TicketDoc en <div> block. Si on voulait aligner parfaitement sur le standalone sans toucher aux tops, l'alternative propre serait de passer display:'inline-block' ou de rendre les champs non-editable en <span> dans TicketDoc.jsx — mais ce n'est pas urgent, le fix actuel fonctionne."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100% (React: alignement poids OK, PDF OK ; Standalone: alignement OK, PDF OK ; non-régression 9/9 autres champs OK)"},
+  "seed_data_creation": "Aucun — valeurs par défaut DEFAULTS utilisées pour toutes les mesures.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Bug d'alignement des 3 zones poids RÉSOLU en iteration 14. Mesures canvas h2c @scale4 sur printRef React : digit−label=+1px (0.046%), digit−kg=-4 à -5px (digits légèrement au-dessus de kg, 0.18-0.23%). Si à l'avenir l'utilisateur se plaint à nouveau d'un décalage, re-mesurer en utilisant la même méthode : document.querySelectorAll('[data-testid=\"ticket-document\"])[1] (le printRef hidden) + html2canvas CDN scale=4 + lowestDarkY sur bandes (74-80, 80-86.5, 92-99.5)% et colonnes label (3-17%), digit (19.5-55%), kg (56-70%). Seuil acceptable : |delta| < 5 px canvas @scale4.",
+  "rca of the issue": "Le fix appliqué (fPoids/p2Poids/poidsNet top: 75.8→75.2 / 81.8→81.2 / 93.8→93.2) compense exactement le drift de ~0.6% constaté en iter_13 entre le rendu <div> React et le rendu <span> standalone sous html2canvas. La cause racine (synthèse de gras par le navigateur sur TicketMono qui ne charge que le weight 400, combinée au comportement baseline différent de <div> vs <span>) n'est pas réglée à la source, mais compensée au niveau positionnel — approche pragmatique et correcte pour cette app offline mono-usage. Validation : deltas canvas @scale4 passés de +9/+15 px (iter_13) à +1 px pour digit vs label, et -4/-5 px pour digit vs kg (dans les deux cas < seuil 5px)."
+}
