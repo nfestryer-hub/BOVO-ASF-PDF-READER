@@ -12,12 +12,12 @@ export const FIELDS = [
   { id: "heP2", left: 69.2, top: 25.6, w: 12.8, h: 18, fs: 13, align: "center" },
   { id: "nCamion", left: 58.5, top: 31.6, w: 21.5, h: 19, fs: 12, align: "center" },
   { id: "client", left: 28.7, top: 37.6, w: 22.0, h: 18, fs: 13, align: "left" },
-  { id: "zone", left: 52.7, top: 40.7, w: 14.8, h: 17, fs: 14, align: "center" },
+  { id: "zone", left: 52.7, top: 40.7, w: 24.0, h: 17, fs: 13, align: "center" },
   { id: "provenance", left: 7.8, top: 55.7, w: 90.0, h: 18, fs: 11, align: "center" },
   { id: "produit", left: 32.0, top: 67.8, w: 26.0, h: 18, fs: 13, align: "center" },
-  { id: "fPoids", left: 19.5, top: 76.6, w: 36.0, h: 23, fs: 19, align: "left" },
-  { id: "p2Poids", left: 19.5, top: 82.7, w: 36.0, h: 23, fs: 19, align: "left" },
-  { id: "poidsNet", left: 32.2, top: 94.6, w: 24.8, h: 23, fs: 19, align: "center" },
+  { id: "fPoids", left: 19.5, top: 76.6, w: 36.0, h: 23, fs: 19, align: "left", bold: true },
+  { id: "p2Poids", left: 19.5, top: 82.7, w: 36.0, h: 23, fs: 19, align: "left", bold: true },
+  { id: "poidsNet", left: 32.2, top: 94.6, w: 24.8, h: 23, fs: 19, align: "center", bold: true },
 ];
 
 const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
@@ -31,7 +31,8 @@ const TicketDoc = forwardRef(({ data, editable = false, onChange }, ref) => {
     fontSize: `${f.fs}px`,
     textAlign: f.align,
     fontFamily: '"TicketMono", "Roboto Mono", "Courier New", monospace',
-    color: "#141414",
+    fontWeight: f.bold ? 700 : 400,
+    color: "#000000",
     background: "#ffffff",
     border: "none",
     outline: "none",
