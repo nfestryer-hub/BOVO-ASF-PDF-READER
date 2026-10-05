@@ -62,3 +62,8 @@ du fichier est une suite de chiffres saisie manuellement.
 - Texte tapé en NOIR pur (#000). Zones poids (fPoids, p2Poids, poidsNet) en GRAS (font-weight 700) pour matcher les gros chiffres arrondis du scan ; petites valeurs en TicketMono fin (match des libellés scannés).
 - Ajustements zones (évite tout rognage) : heP1/heP2 15%, zone 28%, padding 0 1px.
 - Reste ouvert : si l'utilisateur veut une police free encore plus proche des gros chiffres arrondis du scan, prévoir d'embarquer une police dédiée en base64 (contrainte offline).
+
+## MAJ 2026-06 (05/06) — Alignement vertical des poids
+- Bug utilisateur : chiffres P1/P2 et Poids Net non alignés avec les libellés P1:/P2:/kg du scan, et case blanche ne couvrant pas entièrement les chiffres d'origine (dépassement au-dessus).
+- Correctif : zones fPoids/p2Poids/poidsNet agrandies (height 27px, line-height 27px, fs 19 gras) et top ajustés à 76.4 / 82.5 / 94.4 % → couverture totale des chiffres d'origine + ligne de base alignée sur P1:/P2:/kg.
+- Vérifié par testing_agent (iteration_12 : 100 % périmètre, aperçu = rendu export PDF, aucune régression, aucune erreur console).

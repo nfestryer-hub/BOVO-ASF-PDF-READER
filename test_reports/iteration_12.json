@@ -1,0 +1,23 @@
+{
+  "summary": "Frontend-only visual verification of the vertical-alignment fix of the three weight zones (fPoids/p2Poids/poidsNet) on BOTH surfaces: React root and standalone /logiciel-ticket-asteo.html. On both surfaces the three weight inputs now measure height=27px, line-height=27px, font-size=19px, font-weight=700 with top=76.4/82.5/94.4%. Live-ticket inputs AND the export clone (buildNodeFromData -> spans) show the typed values ('29 100', '19 700', '9 400' as default; edits to '31 250' and '11 550' tested) sitting on the SAME baseline as the scanned labels 'P1:' / 'P2:' / 'kg'. The white zones fully cover the original scanned digits (no bleed above or below). In the export clone (what html2canvas renders into the PDF) the white zones are invisible (span.boxShadow='none') and the alignment is identical to the preview. PDF export on the standalone surface succeeded (download '9848.pdf'); no console errors / pageerror on either surface. Non-regression: other 9 fields (nPesee, date, heP1, heP2, nCamion, client, zone, provenance, produit) remain at the same positions as iteration_11 and are not truncated for the default values (zone 'Aucune' still OK, provenance long value still fits). The minor LOW-priority issues from iteration_11 (heP1/heP2 default-value 2px clip; long user-typed values in field-zone being clipped) are unchanged — they were not in scope of this iteration.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "TicketDoc.jsx and standalone HTML share the same magic numbers (top 76.4/82.5/94.4, h/lh 27, fs 19, bold). Consider extracting these into a shared JSON (e.g. /app/frontend/src/ticketFields.json) that both the React component and the standalone HTML read, to avoid future drift between the two surfaces.",
+    "buildNodeFromData in logiciel-ticket-asteo.html copies inp.style.cssText but relies on the fact that inputs only use inline styles for positioning. If a future CSS rule is added to .f (class), the span clone will keep the class and still match — OK — but note that any :focus/:hover rules do not affect the clone, which is the desired behaviour here.",
+    "No visible issues from iteration_11 were reintroduced."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100% for this iteration's scope (vertical alignment of 3 weight zones on both surfaces + export clone + PDF export)"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The weight-zone alignment fix is validated on both surfaces. Measured input geometry (both React and standalone): fPoids/p2Poids width=119px(sw=cw), poidsNet width=82px(sw=cw), height=27px, line-height=27px, font-size=19px, bold. Export clone shows identical alignment with no visible white-box borders. Previous MINOR issues from iteration_11 (heP1/heP2 2px clip and long user-typed values in field-zone) are still present but were out of scope for this iteration.",
+  "rca of the issue": "Original bug: typed weight values were vertically offset from the scanned P1:/P2:/kg labels, and the white input box did not fully cover the printed digits in the scan (they bled above). Fix in TicketDoc.jsx FIELDS + logiciel-ticket-asteo.html inline styles: enlarged each weight zone to h=27px with matching line-height=27px, raised font-size to 19px bold, and adjusted top% to 76.4 / 82.5 / 94.4. Result: the input/span box is tall enough to fully overlap the printed digit band in the scan, and the text baseline aligns with the P1:/P2:/kg baseline. Validated visually at 2.2x and 3x zoom on both the live preview and the buildNodeFromData export clone."
+}
